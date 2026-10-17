@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, type Log, type LogFilter } from '../api'
+import Icon from '../components/Icon.vue'
 import LogHistogram from '../components/LogHistogram.vue'
 import LogList from '../components/LogList.vue'
+import PageHeader from '../components/PageHeader.vue'
+import SkeletonRows from '../components/SkeletonRows.vue'
+import { count } from '../format'
 import { useLoader } from '../load'
 import { useTimeRange } from '../range'
 
@@ -11,12 +15,12 @@ const route = useRoute()
 const router = useRouter()
 const { range } = useTimeRange()
 
-const severities = [
-  { value: 0, label: 'All levels' },
-  { value: 5, label: 'Debug and above' },
-  { value: 9, label: 'Info and above' },
-  { value: 13, label: 'Warn and above' },
-  { value: 17, label: 'Errors only' },
+const levels = [
+  { value: 0, label: 'All' },
+  { value: 5, label: 'Debug+' },
+  { value: 9, label: 'Info+' },
+  { value: 13, label: 'Warn+' },
+  { value: 17, label: 'Errors' },
 ]
 
 // Filters live in the URL so a search can be shared or bookmarked.
@@ -36,6 +40,9 @@ watch(() => filter.value.q, (q) => (text.value = q ?? ''))
 
 const services = useLoader(() => api.services(range.value), [range])
 const hist = useLoader(() => api.histogram(range.value, filter.value), [range, filter])
+const total = computed(() =>
+  (hist.data.value?.buckets ?? []).reduce((n, b) => n + b.debug + b.info + b.warn + b.error, 0),
+)
 
 const logs = ref<Log[]>([])
 const next = ref<string>()
@@ -58,35 +65,67 @@ async function more() {
     loadingMore.value = false
   }
 }
+
+// "/" focuses the search box, as in most log tools.
+const searchBox = ref<HTMLInputElement>()
+function onKey(e: KeyboardEvent) {
+  if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+    e.preventDefault()
+    searchBox.value?.focus()
+  }
+}
+onMounted(() => document.addEventListener('keydown', onKey))
+onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 </script>
 
 <template>
-  <h1>Logs</h1>
-  <form class="toolbar" @submit.prevent="setFilter({ q: text || undefined })">
-    <input v-model="text" type="search" placeholder="Search log messages…" />
-    <select :value="filter.service ?? ''" @change="setFilter({ service: ($event.target as HTMLSelectElement).value || undefined })">
+  <PageHeader title="Logs" subtitle="Search every log line. Click a line for its attributes and trace." />
+
+  <form class="search-row" @submit.prevent="setFilter({ q: text || undefined })">
+    <div class="searchbox">
+      <Icon name="search" :size="16" />
+      <input ref="searchBox" v-model="text" placeholder="Search log messages, e.g. timeout" aria-label="Search logs" />
+      <kbd v-if="!text">/</kbd>
+      <button v-else type="button" class="btn ghost sm icon" title="Clear" @click="text = ''; setFilter({ q: undefined })"><Icon name="x" :size="14" /></button>
+    </div>
+    <select :value="filter.service ?? ''" aria-label="Service" @change="setFilter({ service: ($event.target as HTMLSelectElement).value || undefined })">
       <option value="">All services</option>
       <option v-for="s in services.data.value ?? []" :key="s.name" :value="s.name">{{ s.name }}</option>
     </select>
-    <select :value="filter.severity ?? 0" @change="setFilter({ severity: ($event.target as HTMLSelectElement).value === '0' ? undefined : ($event.target as HTMLSelectElement).value })">
-      <option v-for="s in severities" :key="s.value" :value="s.value">{{ s.label }}</option>
-    </select>
-    <button type="submit">Search</button>
+    <button type="submit" class="btn primary">Search</button>
+  </form>
+
+  <div class="filters">
+    <div class="seg" role="group" aria-label="Level">
+      <button v-for="l in levels" :key="l.value" :class="{ on: (filter.severity ?? 0) === l.value }"
+        @click="setFilter({ severity: l.value ? String(l.value) : undefined })">{{ l.label }}</button>
+    </div>
     <span v-if="filter.trace_id" class="chip mono">
       trace {{ filter.trace_id.slice(0, 8) }}…
       <button type="button" title="Clear" @click="setFilter({ trace_id: undefined })">×</button>
     </span>
-  </form>
+    <span class="grow" />
+    <span class="muted small">{{ count(total) }} matching logs</span>
+  </div>
 
   <div v-if="page.error.value || hist.error.value" class="error-box">{{ page.error.value || hist.error.value }}</div>
   <LogHistogram v-if="hist.data.value" :hist="hist.data.value" />
-  <div v-if="page.loading.value && !logs.length" class="panel empty">Loading…</div>
-  <LogList v-else :logs="logs" show-trace-link />
+  <div v-if="page.loading.value && !logs.length" class="panel"><SkeletonRows :rows="8" /></div>
+  <LogList v-else :logs="logs" show-trace-link :highlight="filter.q" />
   <div v-if="next" class="more">
-    <button :disabled="loadingMore" @click="more">{{ loadingMore ? 'Loading…' : 'Load older logs' }}</button>
+    <button class="btn" :disabled="loadingMore" @click="more">{{ loadingMore ? 'Loading…' : 'Load older logs' }}</button>
   </div>
 </template>
 
 <style scoped>
-.more { text-align: center; margin-top: 12px; }
+.search-row { display: flex; gap: 10px; margin-bottom: 12px; }
+.searchbox {
+  flex: 1; display: flex; align-items: center; gap: 10px; padding: 0 12px; min-height: 40px;
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: 9px; color: var(--muted);
+}
+.searchbox:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.searchbox input { flex: 1; border: 0; box-shadow: none !important; padding: 0; background: transparent; color: var(--text); font-size: 14px; }
+.search-row select { min-width: 170px; }
+.filters { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
+.more { text-align: center; margin-top: 14px; }
 </style>

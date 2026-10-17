@@ -5,7 +5,9 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   server: {
-    proxy: { '/api': 'http://localhost:8080' },
+    // Keep the browser's Host header: the API refuses writes whose Origin
+    // differs from Host (CSRF check), and Origin here is localhost:5173.
+    proxy: { '/api': { target: 'http://localhost:8080', changeOrigin: false } },
   },
   build: {
     outDir: 'dist',

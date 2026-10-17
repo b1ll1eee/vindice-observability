@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { api, type AlertRule, type Op } from '../api'
-import SignalEditor from '../components/SignalEditor.vue'
 import { can } from '../auth'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
+import EmptyState from '../components/EmptyState.vue'
+import Icon from '../components/Icon.vue'
+import ModalDialog from '../components/ModalDialog.vue'
+import PageHeader from '../components/PageHeader.vue'
+import SignalEditor from '../components/SignalEditor.vue'
+import SkeletonRows from '../components/SkeletonRows.vue'
+import StatTile from '../components/StatTile.vue'
 import { time } from '../format'
 import { useLoader } from '../load'
 import { describeSignal, measureFormat } from '../signals'
@@ -13,6 +20,15 @@ function reload() {
   rules.reload()
   events.reload()
 }
+
+const counts = computed(() => {
+  const r = (rules.data.value ?? []).filter((x) => x.enabled)
+  return {
+    firing: r.filter((x) => x.status?.state === 'firing').length,
+    pending: r.filter((x) => x.status?.state === 'pending').length,
+    ok: r.filter((x) => !x.status || x.status.state === 'ok').length,
+  }
+})
 
 const ops: Op[] = ['>', '>=', '<', '<=']
 const windows = [60, 300, 600, 900, 1800, 3600]
@@ -49,20 +65,21 @@ async function toggle(r: AlertRule) {
   reload()
 }
 
-async function remove(r: AlertRule) {
-  if (!confirm(`Delete alert "${r.name}"?`)) return
-  await api.deleteAlert(r.id!)
+const deleting = ref<AlertRule>()
+async function remove() {
+  await api.deleteAlert(deleting.value!.id!)
+  deleting.value = undefined
   reload()
 }
 
-const testMsg = ref<Record<string, string>>({})
+const testMsg = ref<Record<string, { text: string; ok: boolean }>>({})
 async function test(r: AlertRule) {
-  testMsg.value = { ...testMsg.value, [r.id!]: 'Sending…' }
+  testMsg.value = { ...testMsg.value, [r.id!]: { text: 'Sending…', ok: true } }
   try {
     await api.testAlert(r.id!)
-    testMsg.value = { ...testMsg.value, [r.id!]: 'Sent ✓' }
+    testMsg.value = { ...testMsg.value, [r.id!]: { text: 'Test sent to Telegram', ok: true } }
   } catch (e) {
-    testMsg.value = { ...testMsg.value, [r.id!]: e instanceof Error ? e.message : String(e) }
+    testMsg.value = { ...testMsg.value, [r.id!]: { text: e instanceof Error ? e.message : String(e), ok: false } }
   }
 }
 
@@ -73,73 +90,50 @@ function fmt(r: AlertRule, v: number) {
 function dur(sec: number) {
   return sec === 0 ? 'immediately' : sec % 3600 === 0 ? `${sec / 3600}h` : `${sec / 60}m`
 }
+
+function stateOf(r: AlertRule) {
+  return !r.enabled ? 'off' : (r.status?.state ?? 'ok')
+}
 </script>
 
 <template>
-  <div class="titlebar">
-    <h1>Alerts</h1>
-    <div class="spacer" />
-    <button v-if="!draft && can('editor')" @click="edit()">New alert</button>
-  </div>
-  <p class="muted">Notifications go to Telegram. Rules are evaluated every 30 seconds.</p>
+  <PageHeader title="Alerts" subtitle="Rules are checked every 30 seconds. Firing and resolved alerts go to Telegram.">
+    <button v-if="can('editor')" class="btn primary" @click="edit()"><Icon name="plus" />New alert</button>
+  </PageHeader>
 
-  <form v-if="draft" class="panel form" @submit.prevent="save">
-    <h2>{{ draft.id ? 'Edit alert' : 'New alert' }}</h2>
-    <div class="row">
-      <label class="grow">Name <input v-model.trim="draft.name" required placeholder="Orders error rate" /></label>
-      <label>Telegram chat ID <input v-model.trim="draft.chat_id" placeholder="default chat" /></label>
-    </div>
-    <SignalEditor v-model="draft.signal" />
-    <div class="row cond">
-      <span class="muted">Fire when the value over the last</span>
-      <select v-model.number="draft.window_sec">
-        <option v-for="w in windows" :key="w" :value="w">{{ dur(w) }}</option>
-      </select>
-      <span class="muted">is</span>
-      <select v-model="draft.op">
-        <option v-for="o in ops" :key="o" :value="o">{{ o }}</option>
-      </select>
-      <input v-model.number="draft.threshold" type="number" step="any" required style="width: 110px" />
-      <span class="muted">for</span>
-      <select v-model.number="draft.for_sec">
-        <option v-for="h in holds" :key="h" :value="h">{{ dur(h) }}</option>
-      </select>
-    </div>
-    <p v-if="draft.signal.measure === 'error_rate'" class="muted hint">Error rate is a fraction: 0.05 = 5%. Latency is in milliseconds.</p>
-    <div class="row">
-      <label class="check"><input v-model="draft.enabled" type="checkbox" /> Enabled</label>
-      <div class="spacer" />
-      <span v-if="formError" class="bad">{{ formError }}</span>
-      <button type="button" @click="draft = undefined">Cancel</button>
-      <button type="submit" class="primary">Save</button>
-    </div>
-  </form>
+  <div class="tiles">
+    <StatTile label="Firing" :value="String(counts.firing)" :tone="counts.firing ? 'bad' : undefined" hint="need attention now" />
+    <StatTile label="Pending" :value="String(counts.pending)" :tone="counts.pending ? 'warn' : undefined" hint="breaching, waiting out the hold time" />
+    <StatTile label="OK" :value="String(counts.ok)" :tone="counts.ok ? 'ok' : undefined" hint="enabled and quiet" />
+  </div>
 
   <div v-if="rules.error.value" class="error-box">{{ rules.error.value }}</div>
   <div class="panel">
-    <div v-if="!rules.data.value?.length" class="empty">{{ rules.loading.value ? 'Loading…' : 'No alerts yet' }}</div>
+    <SkeletonRows v-if="rules.loading.value && !rules.data.value" :rows="3" />
+    <EmptyState v-else-if="!rules.data.value?.length" icon="alerts" title="No alerts yet"
+      text="For example: alert when a service's error rate stays above 5% for 2 minutes.">
+      <button v-if="can('editor')" class="btn primary" @click="edit()"><Icon name="plus" />New alert</button>
+    </EmptyState>
     <table v-else>
       <thead>
-        <tr><th>State</th><th>Alert</th><th>Condition</th><th class="num">Value</th><th /></tr>
+        <tr><th style="width: 110px">State</th><th>Alert</th><th class="num">Current value</th><th v-if="can('editor')" /></tr>
       </thead>
       <tbody>
         <tr v-for="r in rules.data.value" :key="r.id" :class="{ off: !r.enabled }">
+          <td><span class="badge" :class="[stateOf(r), { pulse: stateOf(r) === 'firing' }]">{{ stateOf(r) }}</span></td>
           <td>
-            <span v-if="!r.enabled" class="badge Unset">off</span>
-            <span v-else class="badge" :class="r.status?.state ?? 'ok'">{{ r.status?.state ?? 'ok' }}</span>
+            <div class="name">{{ r.name }}</div>
+            <div class="muted small mono">{{ describeSignal(r.signal) }} {{ r.op }} {{ r.threshold }} · over {{ dur(r.window_sec) }} · for {{ dur(r.for_sec) }}</div>
+            <div v-if="r.status?.error" class="bad small">{{ r.status.error }}</div>
+            <div v-else-if="r.status?.breaching?.length" class="warnc small">{{ r.status.breaching.join(' · ') }}</div>
+            <div v-if="testMsg[r.id!]" class="small" :class="testMsg[r.id!]!.ok ? 'good' : 'bad'">{{ testMsg[r.id!]!.text }}</div>
           </td>
-          <td>
-            <div>{{ r.name }}</div>
-            <div class="muted small" :class="{ bad: r.status?.error }">{{ r.status?.error || (r.status?.breaching ?? []).join(' · ') }}</div>
-          </td>
-          <td class="mono small">{{ describeSignal(r.signal) }} {{ r.op }} {{ r.threshold }} over {{ dur(r.window_sec) }}, for {{ dur(r.for_sec) }}</td>
-          <td class="num">{{ r.status ? fmt(r, r.status.value) : '–' }}</td>
-          <td v-if="can('editor')" class="actions nowrap">
-            <span v-if="testMsg[r.id!]" class="muted small">{{ testMsg[r.id!] }}</span>
-            <button @click="test(r)">Test</button>
-            <button @click="toggle(r)">{{ r.enabled ? 'Disable' : 'Enable' }}</button>
-            <button @click="edit(r)">Edit</button>
-            <button @click="remove(r)">Delete</button>
+          <td class="num value">{{ r.status ? fmt(r, r.status.value) : '–' }}</td>
+          <td v-if="can('editor')" class="actions">
+            <button class="btn sm" title="Send a test message" @click="test(r)"><Icon name="send" :size="13" />Test</button>
+            <button class="btn sm" @click="toggle(r)">{{ r.enabled ? 'Disable' : 'Enable' }}</button>
+            <button class="btn sm icon" title="Edit" @click="edit(r)"><Icon name="edit" :size="14" /></button>
+            <button class="btn sm icon danger" title="Delete" @click="deleting = r"><Icon name="trash" :size="14" /></button>
           </td>
         </tr>
       </tbody>
@@ -148,38 +142,80 @@ function dur(sec: number) {
 
   <h2>Recent events</h2>
   <div class="panel">
-    <div v-if="!events.data.value?.length" class="empty">No events yet</div>
-    <table v-else>
-      <tbody>
-        <tr v-for="(e, i) in events.data.value" :key="i">
-          <td class="mono nowrap muted">{{ time(e.time) }}</td>
-          <td><span class="badge" :class="e.state === 'firing' ? 'firing' : 'ok'">{{ e.state }}</span></td>
-          <td>{{ e.rule_name }}</td>
-          <td class="num">{{ Math.round(e.value * 1000) / 1000 }}</td>
-          <td class="muted small" :class="{ bad: e.message }">{{ e.message }}</td>
-        </tr>
-      </tbody>
-    </table>
+    <EmptyState v-if="!events.data.value?.length" icon="clock" title="No events yet" text="Each time an alert fires or resolves, it is listed here." />
+    <ul v-else class="timeline">
+      <li v-for="(e, i) in events.data.value" :key="i">
+        <span class="mark" :class="e.state" />
+        <span class="mono muted small when">{{ time(e.time) }}</span>
+        <span class="badge" :class="e.state">{{ e.state }}</span>
+        <span class="name">{{ e.rule_name }}</span>
+        <span class="muted small">value {{ Math.round(e.value * 1000) / 1000 }}</span>
+        <span v-if="e.message" class="bad small">{{ e.message }}</span>
+      </li>
+    </ul>
   </div>
+
+  <ModalDialog v-if="draft" :title="draft.id ? 'Edit alert' : 'New alert'" :width="680" @close="draft = undefined">
+    <form id="alert-form" class="stack" @submit.prevent="save">
+      <div class="two">
+        <label class="field">Name <input v-model.trim="draft.name" required placeholder="Checkout error rate" /></label>
+        <label class="field">Telegram chat ID <input v-model.trim="draft.chat_id" placeholder="default chat" />
+          <span class="hint">Leave empty to use the default chat.</span></label>
+      </div>
+      <div>
+        <div class="section">What to watch</div>
+        <SignalEditor v-model="draft.signal" />
+      </div>
+      <div>
+        <div class="section">When to fire</div>
+        <div class="cond">
+          <span class="muted">Value over the last</span>
+          <select v-model.number="draft.window_sec">
+            <option v-for="w in windows" :key="w" :value="w">{{ dur(w) }}</option>
+          </select>
+          <span class="muted">is</span>
+          <select v-model="draft.op" class="op">
+            <option v-for="o in ops" :key="o" :value="o">{{ o }}</option>
+          </select>
+          <input v-model.number="draft.threshold" type="number" step="any" required class="threshold" />
+          <span class="muted">for</span>
+          <select v-model.number="draft.for_sec">
+            <option v-for="h in holds" :key="h" :value="h">{{ dur(h) }}</option>
+          </select>
+        </div>
+        <p v-if="draft.signal.measure === 'error_rate'" class="hint">Error rate is a fraction: 0.05 means 5%.</p>
+        <p v-else-if="['p50', 'p95', 'p99'].includes(draft.signal.measure ?? '')" class="hint">Latency is in milliseconds.</p>
+      </div>
+      <label class="check"><input v-model="draft.enabled" type="checkbox" /> Enabled</label>
+    </form>
+    <div v-if="formError" class="error-box">{{ formError }}</div>
+    <template #footer>
+      <button class="btn" @click="draft = undefined">Cancel</button>
+      <button class="btn primary" type="submit" form="alert-form"><Icon name="check" />Save alert</button>
+    </template>
+  </ModalDialog>
+
+  <ConfirmDialog v-if="deleting" title="Delete alert?" :message="`“${deleting.name}” will stop being checked.`"
+    confirm-label="Delete" danger @confirm="remove" @cancel="deleting = undefined" />
 </template>
 
 <style scoped>
-.titlebar { display: flex; align-items: center; gap: 8px; }
-.titlebar h1 { margin: 0; }
-.form { padding: 14px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 12px; }
-.form h2 { margin: 0; }
-.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.row label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
-.row label input { color: var(--text); }
-.grow { flex: 1; }
-.check { flex-direction: row !important; align-items: center; color: var(--text) !important; font-size: 14px !important; }
-.hint { margin: -4px 0 0; font-size: 12px; }
-.small { font-size: 12px; }
-.actions { text-align: right; }
-.actions button { padding: 3px 8px; font-size: 12px; margin-left: 4px; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
+.name { font-weight: 600; }
+.value { font-size: 15px; font-weight: 600; }
 tr.off td { opacity: 0.55; }
-button.primary { background: var(--accent); color: white; border-color: var(--accent); }
-:deep(.badge.ok) { background: color-mix(in srgb, #10b981 15%, transparent); color: #10b981; }
-:deep(.badge.pending) { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
-:deep(.badge.firing) { background: color-mix(in srgb, var(--error) 15%, transparent); color: var(--error); }
+.timeline { list-style: none; margin: 0; padding: 6px 0; }
+.timeline li { display: flex; align-items: center; gap: 12px; padding: 9px 18px; border-bottom: 1px solid var(--border); }
+.timeline li:last-child { border-bottom: none; }
+.mark { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.mark.firing { background: var(--error); }
+.mark.resolved { background: var(--ok); }
+.when { width: 170px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.section { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 8px; }
+.cond { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.op { width: 64px; }
+.threshold { width: 110px; }
+.check { display: flex; gap: 8px; align-items: center; font-weight: 550; }
+.hint { margin: 8px 0 0; }
 </style>

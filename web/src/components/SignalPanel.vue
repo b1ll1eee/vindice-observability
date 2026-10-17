@@ -13,20 +13,23 @@ const { data, error, loading } = useLoader(() => signalChart(signal.value, range
 </script>
 
 <template>
-  <div class="panel card">
+  <div class="card">
     <div class="head">
-      <strong>{{ title }}</strong>
+      <div class="min0">
+        <div class="card-title ellipsis">{{ title }}</div>
+        <div class="card-sub mono ellipsis">{{ describeSignal(signal) }}</div>
+      </div>
       <slot name="actions" />
     </div>
-    <div class="muted sub mono">{{ describeSignal(signal) }}</div>
     <div v-if="error" class="bad sub">{{ error }}</div>
-    <div v-else-if="loading && !data" class="muted sub">Loading…</div>
+    <div v-else-if="loading && !data" class="skeleton chart-sk" />
     <LineChart v-else-if="data" :series="data.series" :format="data.format" />
   </div>
 </template>
 
 <style scoped>
-.card { padding: 10px 12px; }
-.head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+.min0 { min-width: 0; }
 .sub { font-size: 12px; margin: 2px 0 6px; }
+.chart-sk { height: 160px; }
 </style>

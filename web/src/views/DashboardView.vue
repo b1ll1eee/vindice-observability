@@ -2,9 +2,15 @@
 import { computed, ref, toRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, type Dashboard, type Panel } from '../api'
+import { can } from '../auth'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
+import EmptyState from '../components/EmptyState.vue'
+import Icon from '../components/Icon.vue'
+import ModalDialog from '../components/ModalDialog.vue'
+import PageHeader from '../components/PageHeader.vue'
 import SignalEditor from '../components/SignalEditor.vue'
 import SignalPanel from '../components/SignalPanel.vue'
-import { can } from '../auth'
+import SkeletonRows from '../components/SkeletonRows.vue'
 import { useLoader } from '../load'
 
 const props = defineProps<{ id: string }>()
@@ -27,6 +33,7 @@ function setEditing(on: boolean) {
   router.replace({ query: { ...route.query, edit: on ? '1' : undefined } })
 }
 
+const adding = ref(false)
 const newPanel = ref<Panel>(blankPanel())
 function blankPanel(): Panel {
   return { title: '', width: 6, signal: { kind: 'red', measure: 'error_rate' } }
@@ -34,6 +41,7 @@ function blankPanel(): Panel {
 function addPanel() {
   draft.value!.panels.push(JSON.parse(JSON.stringify(newPanel.value)))
   newPanel.value = blankPanel()
+  adding.value = false
 }
 function removePanel(i: number) {
   draft.value!.panels.splice(i, 1)
@@ -56,8 +64,8 @@ async function save() {
   }
 }
 
+const confirmDelete = ref(false)
 async function remove() {
-  if (!confirm(`Delete dashboard "${data.value?.title}"?`)) return
   await api.deleteDashboard(id.value)
   router.push('/dashboards')
 }
@@ -65,60 +73,66 @@ async function remove() {
 
 <template>
   <div v-if="error" class="error-box">{{ error }}</div>
-  <div v-else-if="loading && !view" class="panel empty">Loading…</div>
+  <div v-else-if="loading && !view" class="panel"><SkeletonRows :rows="4" /></div>
   <template v-else-if="view">
-    <div class="titlebar">
-      <input v-if="draft" v-model="draft.title" class="title-input" />
-      <h1 v-else>{{ view.title }}</h1>
-      <div class="spacer" />
+    <PageHeader :title="draft ? 'Edit dashboard' : view.title" :subtitle="draft ? undefined : `${view.panels.length} panels`">
       <template v-if="draft">
-        <span v-if="saveError" class="bad">{{ saveError }}</span>
-        <button @click="setEditing(false)">Cancel</button>
-        <button class="primary" @click="save">Save</button>
+        <span v-if="saveError" class="bad small">{{ saveError }}</span>
+        <button class="btn" @click="adding = true"><Icon name="plus" />Add panel</button>
+        <button class="btn" @click="setEditing(false)">Cancel</button>
+        <button class="btn primary" @click="save"><Icon name="check" />Save</button>
       </template>
       <template v-else-if="can('editor')">
-        <button @click="setEditing(true)">Edit</button>
-        <button @click="remove">Delete</button>
+        <button class="btn" @click="setEditing(true)"><Icon name="edit" />Edit</button>
+        <button class="btn danger" @click="confirmDelete = true"><Icon name="trash" />Delete</button>
       </template>
-    </div>
+    </PageHeader>
 
-    <div v-if="!view.panels.length && !draft" class="panel empty">No panels yet. Click Edit to add some.</div>
+    <label v-if="draft" class="field title-field">Title <input v-model="draft.title" /></label>
+
+    <div v-if="!view.panels.length" class="panel">
+      <EmptyState icon="dashboards" title="This dashboard is empty" text="Add a panel for a service measure, a metric or a log count.">
+        <button v-if="draft" class="btn primary" @click="adding = true"><Icon name="plus" />Add panel</button>
+        <button v-else-if="can('editor')" class="btn primary" @click="setEditing(true)"><Icon name="edit" />Edit dashboard</button>
+      </EmptyState>
+    </div>
     <div class="grid">
       <div v-for="(p, i) in view.panels" :key="p.id ?? i" :style="{ gridColumn: `span ${p.width}` }">
         <SignalPanel :title="p.title || 'Untitled'" :signal="p.signal">
           <template v-if="draft" #actions>
-            <span class="row-actions">
-              <select v-model.number="draft.panels[i]!.width" title="Width">
-                <option v-for="w in [3, 4, 6, 8, 12]" :key="w" :value="w">{{ w }}/12</option>
+            <span class="panel-actions">
+              <select v-model.number="draft.panels[i]!.width" title="Width" class="sm">
+                <option v-for="w in [3, 4, 6, 8, 12]" :key="w" :value="w">{{ Math.round((w / 12) * 100) }}%</option>
               </select>
-              <button class="icon" title="Move left" @click="move(i, -1)">←</button>
-              <button class="icon" title="Move right" @click="move(i, 1)">→</button>
-              <button class="icon" title="Remove" @click="removePanel(i)">×</button>
+              <button class="btn sm icon" title="Move left" @click="move(i, -1)"><Icon name="chevron" :size="14" class="flip" /></button>
+              <button class="btn sm icon" title="Move right" @click="move(i, 1)"><Icon name="chevron" :size="14" /></button>
+              <button class="btn sm icon danger" title="Remove" @click="removePanel(i)"><Icon name="trash" :size="14" /></button>
             </span>
           </template>
         </SignalPanel>
       </div>
     </div>
-
-    <form v-if="draft" class="panel add" @submit.prevent="addPanel">
-      <h2>Add panel</h2>
-      <label class="field">Title <input v-model.trim="newPanel.title" placeholder="Panel title" required /></label>
-      <SignalEditor v-model="newPanel.signal" />
-      <div class="actions"><button type="submit">Add panel</button></div>
-    </form>
   </template>
+
+  <ModalDialog v-if="adding" title="Add panel" :width="640" @close="adding = false">
+    <form id="add-panel" class="stack" @submit.prevent="addPanel">
+      <label class="field">Panel title <input v-model.trim="newPanel.title" placeholder="e.g. Checkout error rate" required /></label>
+      <SignalEditor v-model="newPanel.signal" />
+    </form>
+    <template #footer>
+      <button class="btn" @click="adding = false">Cancel</button>
+      <button class="btn primary" type="submit" form="add-panel"><Icon name="plus" />Add panel</button>
+    </template>
+  </ModalDialog>
+
+  <ConfirmDialog v-if="confirmDelete" title="Delete dashboard?" :message="`“${data?.title}” and its panels will be removed for everyone.`"
+    confirm-label="Delete" danger @confirm="remove" @cancel="confirmDelete = false" />
 </template>
 
 <style scoped>
-.titlebar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
-.titlebar h1 { margin: 0; }
-.title-input { font-size: 18px; font-weight: 600; min-width: 320px; }
+.title-field { max-width: 420px; margin-bottom: 16px; }
 .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 14px; }
-.row-actions { display: flex; gap: 4px; }
-.row-actions select, .row-actions button { padding: 2px 6px; font-size: 12px; }
-.add { padding: 14px; margin-top: 18px; }
-.add h2 { margin-top: 0; }
-.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); margin-bottom: 10px; max-width: 420px; }
-.actions { margin-top: 12px; }
-button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+.panel-actions { display: flex; gap: 4px; flex-shrink: 0; }
+select.sm { min-height: 28px; padding: 2px 6px; font-size: 12px; }
+.flip { transform: rotate(180deg); }
 </style>

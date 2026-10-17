@@ -95,6 +95,7 @@ const serviceNames = computed(() => (services.data.value ?? []).map((s) => s.nam
         Service
         <select v-model="model.service" :required="model.kind === 'red'">
           <option v-if="model.kind === 'logs'" :value="undefined">Any</option>
+          <option v-else :value="undefined" disabled>Choose a service…</option>
           <option v-for="s in serviceNames" :key="s" :value="s">{{ s }}</option>
         </select>
       </label>
@@ -121,8 +122,8 @@ const serviceNames = computed(() => (services.data.value ?? []).map((s) => s.nam
 </template>
 
 <style scoped>
-.signal { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
-label input, label select { color: var(--text); }
+.signal { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+label { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; font-weight: 550; color: var(--text-2); }
+label input, label select { color: var(--text); font-weight: 400; }
 .wide { grid-column: span 2; }
 </style>

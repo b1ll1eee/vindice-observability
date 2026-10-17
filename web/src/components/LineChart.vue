@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 export interface ChartSeries {
   name: string
@@ -12,8 +12,20 @@ const props = withDefaults(
   { format: (v: number) => String(Math.round(v * 100) / 100), height: 160 },
 )
 
-const W = 600
-const pad = { top: 8, right: 8, bottom: 18, left: 44 }
+// Drawn at the container's real width, so text keeps its pixel size.
+const box = ref<HTMLDivElement>()
+const W = ref(600)
+let observer: ResizeObserver | undefined
+onMounted(() => {
+  observer = new ResizeObserver(([e]) => {
+    if (e && e.contentRect.width > 0) W.value = Math.round(e.contentRect.width)
+  })
+  if (box.value) observer.observe(box.value)
+})
+onBeforeUnmount(() => observer?.disconnect())
+// Unique per chart instance, for gradient ids.
+const uid = Math.random().toString(36).slice(2, 8)
+const pad = { top: 10, right: 10, bottom: 22, left: 52 }
 
 const bounds = computed(() => {
   let x0 = Infinity, x1 = -Infinity, y1 = 0
@@ -24,12 +36,13 @@ const bounds = computed(() => {
       if (v !== null) y1 = Math.max(y1, v)
     }
   if (!isFinite(x0)) return null
-  return { x0, x1: x1 === x0 ? x0 + 1 : x1, y1: y1 === 0 ? 1 : y1 * 1.1 }
+  // All-zero data still gets a 0..1 axis (ticks at 0, 0.5, 1).
+  return { x0, x1: x1 === x0 ? x0 + 1 : x1, y1: (y1 === 0 ? 1 : y1) * 1.1 }
 })
 
 const x = (t: number) => {
   const b = bounds.value!
-  return pad.left + ((t - b.x0) / (b.x1 - b.x0)) * (W - pad.left - pad.right)
+  return pad.left + ((t - b.x0) / (b.x1 - b.x0)) * (W.value - pad.left - pad.right)
 }
 const y = (v: number) => pad.top + (1 - v / bounds.value!.y1) * (props.height - pad.top - pad.bottom)
 
@@ -45,6 +58,25 @@ function paths(s: ChartSeries): string {
     d += `${pen ? 'L' : 'M'}${x(t).toFixed(1)},${y(v).toFixed(1)}`
     pen = true
   }
+  return d
+}
+
+// Area under a single series, closed down to the x axis per segment.
+function area(s: ChartSeries): string {
+  let d = ''
+  let seg: [number, number][] = []
+  const flush = () => {
+    if (seg.length > 1) {
+      const base = y(0)
+      d += `M${x(seg[0]![0])},${base}` + seg.map(([t, v]) => `L${x(t)},${y(v)}`).join('') + `L${x(seg[seg.length - 1]![0])},${base}Z`
+    }
+    seg = []
+  }
+  for (const [t, v] of s.points) {
+    if (v === null) flush()
+    else seg.push([t, v])
+  }
+  flush()
   return d
 }
 
@@ -85,7 +117,7 @@ function onMove(e: MouseEvent) {
   const first = props.series[0]
   if (!b || !first) return
   const rect = (e.currentTarget as SVGElement).getBoundingClientRect()
-  const fx = ((e.clientX - rect.left) / rect.width) * W
+  const fx = ((e.clientX - rect.left) / rect.width) * W.value
   let best: number | null = null
   let dist = Infinity
   for (const [t] of first.points) {
@@ -97,10 +129,10 @@ function onMove(e: MouseEvent) {
 </script>
 
 <template>
-  <div class="chart">
+  <div ref="box" class="chart">
     <div v-if="!bounds" class="empty">No data</div>
     <template v-else>
-      <svg :viewBox="`0 0 ${W} ${height}`" :style="{ height: `${height}px` }" @mousemove="onMove" @mouseleave="hoverT = null">
+      <svg :viewBox="`0 0 ${W} ${height}`" :width="W" :height="height" @mousemove="onMove" @mouseleave="hoverT = null">
         <g class="grid">
           <template v-for="v in ticks.y" :key="v">
             <line :x1="pad.left" :x2="W - pad.right" :y1="y(v)" :y2="y(v)" />
@@ -110,8 +142,15 @@ function onMove(e: MouseEvent) {
             {{ timeLabel(t) }}
           </text>
         </g>
-        <template v-for="s in series" :key="s.name">
-          <path :d="paths(s)" :stroke="s.color" fill="none" stroke-width="1.6" vector-effect="non-scaling-stroke" />
+        <defs>
+          <linearGradient v-for="(s, i) in series" :id="`fill-${uid}-${i}`" :key="i" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" :stop-color="s.color" stop-opacity="0.28" />
+            <stop offset="100%" :stop-color="s.color" stop-opacity="0" />
+          </linearGradient>
+        </defs>
+        <template v-for="(s, i) in series" :key="s.name">
+          <path v-if="series.length === 1" :d="area(s)" :fill="`url(#fill-${uid}-${i})`" stroke="none" />
+          <path :d="paths(s)" :stroke="s.color" fill="none" stroke-width="1.8" stroke-linejoin="round" />
           <ellipse v-for="[t, v] in isolated(s)" :key="t" :cx="x(t)" :cy="y(v)" rx="2.5" :ry="2.5" :fill="s.color" />
         </template>
         <line v-if="hoverT !== null" class="cursor" :x1="x(hoverT)" :x2="x(hoverT)" :y1="pad.top" :y2="height - pad.bottom" />
@@ -128,11 +167,11 @@ function onMove(e: MouseEvent) {
 .chart { position: relative; }
 svg { width: 100%; display: block; }
 .grid line { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.grid text { fill: var(--muted); font-size: 10px; }
+.grid text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .cursor { stroke: var(--muted); stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
 .tip {
   position: absolute; top: 4px; right: 8px; font-size: 12px; background: var(--panel);
-  border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; pointer-events: none;
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; pointer-events: none; box-shadow: var(--shadow-lg);
 }
-.empty { padding: 40px; text-align: center; color: var(--muted); }
+.empty { height: 160px; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
 </style>

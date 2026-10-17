@@ -2,9 +2,12 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, type SignalQuery } from '../api'
+import { can } from '../auth'
+import EmptyState from '../components/EmptyState.vue'
+import Icon from '../components/Icon.vue'
+import PageHeader from '../components/PageHeader.vue'
 import SignalEditor from '../components/SignalEditor.vue'
 import SignalPanel from '../components/SignalPanel.vue'
-import { can } from '../auth'
 import { useLoader } from '../load'
 import { describeSignal } from '../signals'
 
@@ -41,27 +44,37 @@ async function addToDashboard() {
 </script>
 
 <template>
-  <h1>Explore</h1>
-  <form class="panel editor" @submit.prevent="run">
+  <PageHeader title="Explore" subtitle="Chart any metric, service measure or log count. Pin what you find to a dashboard." />
+
+  <form class="card editor" @submit.prevent="run">
     <SignalEditor v-model="draft" />
-    <div class="actions"><button type="submit">Run</button></div>
+    <div class="actions">
+      <button type="submit" class="btn primary"><Icon name="explore" />Run query</button>
+    </div>
   </form>
 
   <template v-if="shown">
-    <SignalPanel :title="describeSignal(shown)" :signal="shown" />
-    <div v-if="can('editor')" class="toolbar add">
-      <select v-model="target">
-        <option value="">Add to dashboard…</option>
-        <option v-for="d in dashboards.data.value ?? []" :key="d.id" :value="d.id">{{ d.title }}</option>
-      </select>
-      <button :disabled="!target || saving" @click="addToDashboard">Add</button>
-      <span v-if="message" class="bad">{{ message }}</span>
-    </div>
+    <SignalPanel class="result" :title="describeSignal(shown)" :signal="shown">
+      <template v-if="can('editor')" #actions>
+        <div class="row">
+          <select v-model="target" aria-label="Dashboard">
+            <option value="">Add to dashboard…</option>
+            <option v-for="d in dashboards.data.value ?? []" :key="d.id" :value="d.id">{{ d.title }}</option>
+          </select>
+          <button class="btn" :disabled="!target || saving" @click="addToDashboard"><Icon name="plus" />Add</button>
+        </div>
+      </template>
+    </SignalPanel>
+    <div v-if="message" class="error-box">{{ message }}</div>
   </template>
+  <div v-else class="card">
+    <EmptyState icon="explore" title="Build a query above"
+      text="Pick a source: a service's RED measure, any metric with an aggregation such as rate, or a count of matching logs." />
+  </div>
 </template>
 
 <style scoped>
-.editor { padding: 14px; margin-bottom: 14px; }
-.actions { margin-top: 12px; }
-.add { margin-top: 12px; }
+.editor { margin-bottom: 16px; }
+.actions { margin-top: 16px; display: flex; justify-content: flex-end; }
+.result :deep(svg) { height: 260px; }
 </style>

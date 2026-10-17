@@ -12,8 +12,17 @@ export const presets = [
 
 export type PresetKey = (typeof presets)[number]['key']
 
-// Bumped by the refresh button; views watch it to reload.
+// Bumped by the refresh button and auto-refresh; views watch it to reload.
 export const refreshTick = ref(0)
+
+// Auto-refresh period in seconds; 0 is off.
+export const autoRefresh = ref(0)
+let timer: ReturnType<typeof setInterval> | undefined
+export function setAutoRefresh(seconds: number) {
+  autoRefresh.value = seconds
+  clearInterval(timer)
+  if (seconds > 0) timer = setInterval(() => refreshTick.value++, seconds * 1000)
+}
 
 /**
  * The selected time range lives in the URL (?range=1h) so links are shareable.

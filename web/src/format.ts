@@ -23,6 +23,16 @@ export function time(iso: string): string {
   return `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${hms}.${String(d.getMilliseconds()).padStart(3, '0')}`
 }
 
+export type Health = 'healthy' | 'degraded' | 'failing' | 'idle'
+
+/** Health from the error rate: 5% or more fails, 1% or more degrades. */
+export function health(requests: number, errorRate: number): Health {
+  if (!requests) return 'idle'
+  if (errorRate >= 0.05) return 'failing'
+  if (errorRate >= 0.01) return 'degraded'
+  return 'healthy'
+}
+
 /** Stable colour per service name. */
 export function serviceColor(name: string): string {
   let h = 0
