@@ -2,7 +2,7 @@
 
 Lightweight, self-hosted observability for logs, traces and metrics. Data comes in over OpenTelemetry (OTLP), is buffered in Kafka, and is stored in ClickHouse.
 
-> **Status:** phases 1–4 are done: ingest, storage, query API, UI (services, logs, traces, metrics explorer, dashboards), alerting to Telegram, sign-in with roles, and API keys for ingest.
+> **Status:** phases 1–4 are done: ingest, storage, query API, UI (services, logs, traces, metrics explorer, dashboards), alerting to Telegram, sign-in with roles, API keys for ingest, and Prometheus remote write.
 
 ```
 app (OTel SDK) ──OTLP──▶ ingest ──zstd──▶ Kafka ──▶ writer ──batch──▶ ClickHouse
@@ -60,6 +60,25 @@ Security details:
 - **CSRF.** State-changing requests from another origin are refused.
 - **Safe user management.** The last active admin cannot be demoted, disabled or deleted, and admins cannot delete themselves.
 - **Session key.** If `VINDICE_SESSION_SECRET` is empty, a key is generated and stored in ClickHouse, shared by every instance.
+
+## Prometheus remote write
+
+Vindice accepts Prometheus remote write 1.0 at `POST /api/v1/write` on port 4318, so the scrapes and exporters you already have can feed Vindice without changes. See `examples/prometheus-remote-write.yml`:
+
+```yaml
+remote_write:
+  - url: http://vindice-host:4318/api/v1/write
+    authorization:
+      credentials: vdc_...
+```
+
+How samples are mapped:
+- **Into the normal metric path.** Samples become OTLP metrics, then go through the same Kafka, writer and rollups.
+- **Labels.** `job` becomes `service.name`, `instance` becomes `service.instance.id`, and every other label becomes an attribute.
+- **Counters and gauges.** Prometheus metadata decides when it is sent. Otherwise, names ending in `_total`, `_bucket`, `_count` or `_sum` are stored as counters and everything else as gauges.
+- **Dropped samples.** Staleness markers and native histograms are dropped.
+- **Errors.** A 5xx response makes Prometheus retry. A bad key gets 401.
+- **Remote write 2.0** gets 415. Keep the default `protobuf_message: prometheus.WriteRequest`.
 
 ## Ingest API keys
 
@@ -140,6 +159,8 @@ internal/core/
   policy/                   drop rules, sampling, attribute promotion, dedupe
 internal/adapter/
   in/otlphttp, in/otlpgrpc  OTLP receivers → port.Ingestor
+  in/promwrite              Prometheus remote write 1.0 → OTLP → port.Ingestor
+  in/ingestauth             API key check shared by the HTTP receivers
   in/kafkaconsumer          Kafka → port.BatchWriter (commits offsets after each flush)
   in/httpapi                REST API → port.Querier, serves the UI
   out/kafkapublisher        port.Publisher

@@ -1,0 +1,6 @@
+# Send everything Prometheus scrapes to Vindice as well.
+# Add this block to prometheus.yml; create the key on the API keys page.
+remote_write:
+  - url: http://vindice-host:4318/api/v1/write
+    authorization:
+      credentials: vdc_your_key_here   # or credentials_file: /etc/prometheus/vindice-key

@@ -30,6 +30,7 @@ import (
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/kafkaconsumer"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/otlpgrpc"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/otlphttp"
+	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/promwrite"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/kafka"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/out/authcrypto"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/out/clickhouse"
@@ -160,7 +161,7 @@ func startIngest(ctx context.Context, g *errgroup.Group, cfg config.Config, auth
 
 	httpSrv := &http.Server{
 		Addr:              cfg.OTLPHTTPAddr,
-		Handler:           otlphttp.New(ingestSvc, auth, cfg.MaxRequestBytes, log),
+		Handler:           ingestMux(ingestSvc, auth, cfg.MaxRequestBytes, log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	grpcSrv := otlpgrpc.NewServer(ingestSvc, auth, int(cfg.MaxRequestBytes))
@@ -191,6 +192,16 @@ func startIngest(ctx context.Context, g *errgroup.Group, cfg config.Config, auth
 		return nil
 	})
 	return nil
+}
+
+// ingestMux serves OTLP/HTTP and Prometheus remote write on one port.
+// /healthz needs no key.
+func ingestMux(ingest port.Ingestor, auth port.IngestAuthorizer, maxBody int64, log *slog.Logger) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	mux.Handle("POST /api/v1/write", promwrite.New(ingest, auth, maxBody, log))
+	mux.Handle("/", otlphttp.New(ingest, auth, maxBody, log))
+	return mux
 }
 
 // openClickHouse connects (waiting for ClickHouse if needed) and migrates the

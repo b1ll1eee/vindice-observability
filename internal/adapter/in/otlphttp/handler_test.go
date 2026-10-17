@@ -15,6 +15,7 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/ingestauth"
 	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
 )
 
@@ -182,7 +183,7 @@ func TestAPIKey(t *testing.T) {
 	if rec := send(unavailable, "Authorization", "Bearer vdc_good"); rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("keys not loaded should be retryable: %d", rec.Code)
 	}
-	if got := KeyFromHeader(http.Header{"Authorization": {"Basic abc"}}); got != "" {
+	if got := ingestauth.KeyFromHeader(http.Header{"Authorization": {"Basic abc"}}); got != "" {
 		t.Errorf("basic auth taken as a key: %q", got)
 	}
 }
