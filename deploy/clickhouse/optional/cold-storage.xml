@@ -1,0 +1,39 @@
+<!--
+  Optional cold tier on S3-compatible storage (AWS S3, Cloudflare R2, MinIO).
+  Mount into /etc/clickhouse-server/config.d/ and start vindice with
+    VINDICE_CH_COLD_STORAGE_POLICY=tiered
+    VINDICE_CH_COLD_AFTER_DAYS=7
+  Parts older than COLD_AFTER_DAYS move from local disk to the bucket.
+  The policy only applies to tables created after it is enabled.
+-->
+<clickhouse>
+    <storage_configuration>
+        <disks>
+            <cold_s3>
+                <type>s3</type>
+                <endpoint>https://ACCOUNT_ID.r2.cloudflarestorage.com/vindice-cold/</endpoint>
+                <access_key_id from_env="VINDICE_S3_ACCESS_KEY_ID"/>
+                <secret_access_key from_env="VINDICE_S3_SECRET_ACCESS_KEY"/>
+                <metadata_path>/var/lib/clickhouse/disks/cold_s3/</metadata_path>
+            </cold_s3>
+            <cold_s3_cache>
+                <type>cache</type>
+                <disk>cold_s3</disk>
+                <path>/var/lib/clickhouse/disks/cold_s3_cache/</path>
+                <max_size>2Gi</max_size>
+            </cold_s3_cache>
+        </disks>
+        <policies>
+            <tiered>
+                <volumes>
+                    <hot>
+                        <disk>default</disk>
+                    </hot>
+                    <cold>
+                        <disk>cold_s3_cache</disk>
+                    </cold>
+                </volumes>
+            </tiered>
+        </policies>
+    </storage_configuration>
+</clickhouse>

@@ -1,0 +1,7 @@
+{
+  "drop": [
+    { "signal": "traces", "name": "^(GET|HEAD) /(healthz|readyz|livez|metrics)$" },
+    { "signal": "logs", "body": "(?i)health ?check" },
+    { "signal": "metrics", "name": "^(go_gc_|process_runtime_go_gc_)" }
+  ]
+}

@@ -1,0 +1,216 @@
+// Command vindice runs the Vindice observability backend. It is the
+// composition root: adapters are built here and injected into the core.
+//
+//	vindice -mode=all      ingest + writer in one process (default)
+//	vindice -mode=ingest   OTLP receivers -> Kafka
+//	vindice -mode=writer   Kafka -> ClickHouse
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"golang.org/x/sync/errgroup"
+
+	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/kafkaconsumer"
+	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/otlpgrpc"
+	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/otlphttp"
+	"github.com/b1ll1eee/vindice-obs/internal/adapter/kafka"
+	"github.com/b1ll1eee/vindice-obs/internal/adapter/out/clickhouse"
+	"github.com/b1ll1eee/vindice-obs/internal/adapter/out/kafkapublisher"
+	"github.com/b1ll1eee/vindice-obs/internal/config"
+	"github.com/b1ll1eee/vindice-obs/internal/core/policy"
+	"github.com/b1ll1eee/vindice-obs/internal/core/service"
+)
+
+func main() {
+	mode := flag.String("mode", "all", "all | ingest | writer")
+	flag.Parse()
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := run(ctx, *mode, cfg, log); err != nil && !errors.Is(err, context.Canceled) {
+		log.Error("vindice stopped", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) error {
+	var ingest, writer bool
+	switch mode {
+	case "all":
+		ingest, writer = true, true
+	case "ingest":
+		ingest = true
+	case "writer":
+		writer = true
+	default:
+		return fmt.Errorf("unknown mode %q", mode)
+	}
+	log.Info("starting vindice", "mode", mode)
+
+	if err := retry(ctx, log, "kafka", func(ctx context.Context) error {
+		return kafka.EnsureTopics(ctx, cfg.KafkaBrokers, cfg.KafkaPartitions, cfg.KafkaRetention)
+	}); err != nil {
+		return err
+	}
+
+	g, ctx := errgroup.WithContext(ctx)
+	if ingest {
+		if err := startIngest(ctx, g, cfg, log); err != nil {
+			return err
+		}
+	}
+	if writer {
+		if err := startWriter(ctx, g, cfg, log); err != nil {
+			return err
+		}
+	}
+	return g.Wait()
+}
+
+func startIngest(ctx context.Context, g *errgroup.Group, cfg config.Config, log *slog.Logger) error {
+	pub, err := kafkapublisher.New(cfg.KafkaBrokers)
+	if err != nil {
+		return err
+	}
+	ingestSvc := service.NewIngestService(pub)
+
+	httpSrv := &http.Server{
+		Addr:              cfg.OTLPHTTPAddr,
+		Handler:           otlphttp.New(ingestSvc, cfg.MaxRequestBytes, log),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	grpcSrv := otlpgrpc.NewServer(ingestSvc, int(cfg.MaxRequestBytes))
+	lis, err := net.Listen("tcp", cfg.OTLPGRPCAddr)
+	if err != nil {
+		pub.Close()
+		return err
+	}
+
+	g.Go(func() error {
+		log.Info("otlp/http listening", "addr", cfg.OTLPHTTPAddr)
+		if err := httpSrv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	})
+	g.Go(func() error {
+		log.Info("otlp/grpc listening", "addr", cfg.OTLPGRPCAddr)
+		return grpcSrv.Serve(lis)
+	})
+	g.Go(func() error {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = httpSrv.Shutdown(shutdownCtx)
+		grpcSrv.GracefulStop()
+		pub.Close() // after the servers, so in-flight requests can finish publishing
+		return nil
+	})
+	return nil
+}
+
+func startWriter(ctx context.Context, g *errgroup.Group, cfg config.Config, log *slog.Logger) error {
+	filter, err := policy.LoadFilter(cfg.RulesFile)
+	if err != nil {
+		return err
+	}
+
+	var repo *clickhouse.Repository
+	if err := retry(ctx, log, "clickhouse", func(ctx context.Context) error {
+		repo, err = clickhouse.Open(ctx, clickhouse.Config{
+			Addrs:             cfg.ClickHouseAddrs,
+			Database:          cfg.ClickHouseDB,
+			User:              cfg.ClickHouseUser,
+			Password:          cfg.ClickHousePassword,
+			ColdStoragePolicy: cfg.ColdStoragePolicy,
+			ColdAfterDays:     cfg.ColdAfterDays,
+			Retention: clickhouse.Retention{
+				DebugLogs:  cfg.Retention.DebugLogs,
+				InfoLogs:   cfg.Retention.InfoLogs,
+				ErrorLogs:  cfg.Retention.ErrorLogs,
+				Traces:     cfg.Retention.Traces,
+				MetricsRaw: cfg.Retention.MetricsRaw,
+				Metrics1m:  cfg.Retention.Metrics1m,
+				Metrics1h:  cfg.Retention.Metrics1h,
+			},
+		})
+		return err
+	}); err != nil {
+		return err
+	}
+	if err := repo.Migrate(ctx); err != nil {
+		_ = repo.Close()
+		return err
+	}
+
+	writerSvc := service.NewWriterService(service.WriterDeps{
+		Repo:   repo,
+		Filter: filter,
+		Sampler: policy.NewSampler(policy.SamplerConfig{
+			Rate:       cfg.SampleRate,
+			Slow:       cfg.SampleSlow,
+			Wait:       cfg.SampleWait,
+			MaxPending: cfg.SampleMaxPending,
+		}),
+		Resources: policy.NewSeen(time.Hour, 1_000_000),
+		Series:    policy.NewSeen(time.Hour, 1_000_000),
+	})
+
+	consumer, err := kafkaconsumer.New(kafkaconsumer.Config{
+		Brokers:       cfg.KafkaBrokers,
+		Group:         cfg.KafkaGroup,
+		BatchRows:     cfg.BatchRows,
+		FlushInterval: cfg.FlushInterval,
+	}, writerSvc, log)
+	if err != nil {
+		_ = repo.Close()
+		return err
+	}
+
+	g.Go(func() error {
+		defer repo.Close()
+		log.Info("writer consuming", "group", cfg.KafkaGroup)
+		return consumer.Run(ctx)
+	})
+	return nil
+}
+
+// retry calls fn until it succeeds or ctx ends, so services can start before
+// their dependencies are ready.
+func retry(ctx context.Context, log *slog.Logger, dep string, fn func(context.Context) error) error {
+	backoff := time.Second
+	for {
+		attemptCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err := fn(attemptCtx)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		log.Warn("waiting for dependency", "dep", dep, "err", err, "retry_in", backoff)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff = min(backoff*2, 15*time.Second)
+	}
+}
