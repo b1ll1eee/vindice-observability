@@ -18,8 +18,10 @@ type LogQuery struct {
 	// MinSeverity keeps logs at this severity number or above; logs with no
 	// severity count as INFO (9).
 	MinSeverity uint8
-	Text        string
-	TraceID     *[16]byte
+	// Levels keeps only logs at exactly these levels; empty means all.
+	Levels  []SeverityLevel
+	Text    string
+	TraceID *[16]byte
 	// Before is a keyset cursor: only logs strictly older are returned.
 	Before time.Time
 	Limit  int
@@ -56,6 +58,17 @@ const (
 	LevelWarn                       // 13-16
 	LevelError                      // 17+
 )
+
+var levelNames = map[string]SeverityLevel{"debug": LevelDebug, "info": LevelInfo, "warn": LevelWarn, "error": LevelError}
+
+// ParseLevel maps "debug", "info", "warn" or "error" to a level.
+func ParseLevel(name string) (SeverityLevel, error) {
+	l, ok := levelNames[name]
+	if !ok {
+		return 0, fmt.Errorf("%w: unknown level %q (use debug, info, warn or error)", ErrInvalidQuery, name)
+	}
+	return l, nil
+}
 
 func LevelOf(n uint8) SeverityLevel {
 	switch {

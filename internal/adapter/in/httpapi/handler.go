@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
@@ -246,6 +247,15 @@ func logQuery(r *http.Request) (domain.LogQuery, error) {
 		Text:        p.str("q"),
 		Before:      p.nanos("before"),
 		Limit:       p.int("limit"),
+	}
+	if s := p.str("level"); s != "" && p.err == nil {
+		for _, name := range strings.Split(s, ",") {
+			l, err := domain.ParseLevel(strings.TrimSpace(name))
+			if err != nil {
+				return q, err
+			}
+			q.Levels = append(q.Levels, l)
+		}
 	}
 	if s := p.str("trace_id"); s != "" && p.err == nil {
 		id, err := domain.ParseTraceID(s)

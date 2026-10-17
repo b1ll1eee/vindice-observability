@@ -503,6 +503,10 @@ func testReadSide(ctx context.Context, t *testing.T, q *service.QueryService) {
 		"errors only":        {domain.LogQuery{Range: window, MinSeverity: 17}, 1},
 		"info and above":     {domain.LogQuery{Range: window, MinSeverity: 9}, 3}, // includes the log with no severity
 		"warn and above":     {domain.LogQuery{Range: window, MinSeverity: 13}, 1},
+		"only info":          {domain.LogQuery{Range: window, Levels: []domain.SeverityLevel{domain.LevelInfo}}, 2}, // INFO + no severity
+		"only error":         {domain.LogQuery{Range: window, Levels: []domain.SeverityLevel{domain.LevelError}}, 1},
+		"only debug":         {domain.LogQuery{Range: window, Levels: []domain.SeverityLevel{domain.LevelDebug}}, 0},
+		"info or error":      {domain.LogQuery{Range: window, Levels: []domain.SeverityLevel{domain.LevelInfo, domain.LevelError}}, 3},
 		"service":            {domain.LogQuery{Range: window, Service: "orders"}, 3},
 		"trace":              {domain.LogQuery{Range: window, TraceID: (*[16]byte)(errTraceID)}, 1},
 		"page size":          {domain.LogQuery{Range: window, Limit: 2}, 2},

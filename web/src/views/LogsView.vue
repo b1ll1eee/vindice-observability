@@ -14,18 +14,21 @@ const route = useRoute()
 const router = useRouter()
 const { range } = useTimeRange()
 
-// "At least this level". Logs without a severity count as Info, as on the server.
+// One exact level at a time; none selected means all. Logs without a
+// severity count as Info, as on the server.
 const levels = [
-  { value: 0, label: 'All', from: ['debug', 'info', 'warn', 'error'] },
-  { value: 9, label: 'Info+', from: ['info', 'warn', 'error'] },
-  { value: 13, label: 'Warn+', from: ['warn', 'error'] },
-  { value: 17, label: 'Errors', from: ['error'] },
+  { value: 'debug', label: 'Debug' },
+  { value: 'info', label: 'Info' },
+  { value: 'warn', label: 'Warn' },
+  { value: 'error', label: 'Error' },
 ] as const
+type LevelName = (typeof levels)[number]['value']
 
 // Filters live in the URL so a search can be shared or bookmarked.
 const filter = computed<LogFilter>(() => ({
   service: (route.query.service as string) || undefined,
   severity: Number(route.query.severity) || undefined,
+  level: (route.query.level as string) || undefined,
   q: (route.query.q as string) || undefined,
   trace_id: (route.query.trace_id as string) || undefined,
 }))
@@ -45,7 +48,10 @@ const total = computed(() =>
 
 // Counts on the level buttons come from the same filters minus the level,
 // so each button shows what it would return.
-const allLevels = useLoader(() => api.histogram(range.value, { ...filter.value, severity: undefined }), [range, filter])
+const allLevels = useLoader(
+  () => api.histogram(range.value, { ...filter.value, severity: undefined, level: undefined }),
+  [range, filter],
+)
 const perLevel = computed(() => {
   const sum = { debug: 0, info: 0, warn: 0, error: 0 }
   for (const b of allLevels.data.value?.buckets ?? []) {
@@ -59,8 +65,12 @@ const perLevel = computed(() => {
 // Exact, not rounded: 5,101 and 5,061 must not both read "5.1k".
 const exact = (n: number) => n.toLocaleString('en-US')
 
-function levelCount(from: readonly ('debug' | 'info' | 'warn' | 'error')[]) {
-  return from.reduce((n, l) => n + perLevel.value[l], 0)
+const selected = computed(() => new Set((filter.value.level ?? '').split(',').filter(Boolean)))
+
+// Clicking a level shows only that level; clicking it again shows all.
+function pickLevel(l: LevelName) {
+  const only = selected.value.size === 1 && selected.value.has(l)
+  setFilter({ level: only ? undefined : l, severity: undefined })
 }
 
 const logs = ref<Log[]>([])
@@ -116,9 +126,12 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 
   <div class="filters">
     <div class="seg" role="group" aria-label="Level">
-      <button v-for="l in levels" :key="l.value" :class="{ on: (filter.severity ?? 0) === l.value }"
-        @click="setFilter({ severity: l.value ? String(l.value) : undefined })">
-        {{ l.label }}<span v-if="allLevels.data.value" class="n">{{ exact(levelCount(l.from)) }}</span>
+      <button :class="{ on: !selected.size && !filter.severity }" @click="setFilter({ level: undefined, severity: undefined })">
+        All<span v-if="allLevels.data.value" class="n">{{ exact(perLevel.debug + perLevel.info + perLevel.warn + perLevel.error) }}</span>
+      </button>
+      <button v-for="l in levels" :key="l.value" :class="{ on: selected.has(l.value) }" :aria-pressed="selected.has(l.value)"
+        @click="pickLevel(l.value)">
+        <span class="dot" :style="{ background: `var(--${l.value})` }" />{{ l.label }}<span v-if="allLevels.data.value" class="n">{{ exact(perLevel[l.value]) }}</span>
       </button>
     </div>
     <span v-if="filter.trace_id" class="chip mono">
@@ -151,4 +164,5 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 .more { text-align: center; margin-top: 14px; }
 .n { margin-left: 6px; font-size: 11.5px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
 .seg button.on .n { color: var(--accent); }
+.seg .dot { width: 7px; height: 7px; margin-right: 6px; }
 </style>

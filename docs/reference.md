@@ -19,7 +19,7 @@ Details behind the [README](../README.md): every feature, setting and design dec
 ## UI
 
 - **Services.** Request rate, error rate and p50/p95/p99 per service, plus log and error-log counts. Click a service to see the same figures per operation.
-- **Logs.** Full-text search, filters for service and severity, a histogram coloured by level, and paging. Each log links to its trace.
+- **Logs.** Full-text search, a service filter, one-click level filters (All, Debug, Info, Warn, Error) that show how many logs each level has, a histogram coloured by level, and paging. Logs without a severity count as Info. Each log links to its trace. Press `/` to jump to the search box.
 - **Traces.** Filters for service, minimum duration and errors only.
 - **Trace view.** A waterfall with span details, events and attributes. The logs emitted inside the trace appear on the same page, and can be narrowed to the selected span.
 - **Explore.** Chart any metric. Choose an aggregation (`avg`, `sum`, `min`, `max`, `count`, `last`, or `rate`, which handles counter resets), filter by attributes and group by one attribute. Add the chart to a dashboard.
@@ -113,7 +113,7 @@ How the evaluator behaves:
 |---|---|
 | `GET /api/v1/services` | RED and log counts per service |
 | `GET /api/v1/services/{service}/operations` | RED per operation |
-| `GET /api/v1/logs` | search: `service`, `severity`, `q`, `trace_id`, `before` (cursor), `limit` |
+| `GET /api/v1/logs` | search: `service`, `level` (exact, comma-separated: `debug,info,warn,error`), `severity` (minimum number), `q`, `trace_id`, `before` (cursor), `limit` |
 | `GET /api/v1/logs/histogram` | log counts per level, with the same filters |
 | `GET /api/v1/traces` | root spans: `service`, `min_duration_ms`, `errors`, `limit` |
 | `GET /api/v1/traces/{id}` | spans, logs and resources of one trace |

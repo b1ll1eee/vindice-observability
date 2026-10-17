@@ -158,12 +158,37 @@ func latency(q []float64) domain.Latency {
 // (0) count as INFO here, as they do in retention and the level histogram.
 const minSeverity = "(severity_number >= ? OR (severity_number = 0 AND ? <= 9))"
 
+// levelRanges are the severity numbers of each level, matching
+// domain.LevelOf (no severity counts as INFO).
+var levelRanges = map[domain.SeverityLevel]string{
+	domain.LevelDebug: "severity_number BETWEEN 1 AND 8",
+	domain.LevelInfo:  "(severity_number = 0 OR severity_number BETWEEN 9 AND 12)",
+	domain.LevelWarn:  "severity_number BETWEEN 13 AND 16",
+	domain.LevelError: "severity_number >= 17",
+}
+
+// levelsCond ORs the ranges of the chosen levels. The SQL comes only from
+// levelRanges, never from input.
+func levelsCond(levels []domain.SeverityLevel) string {
+	parts := make([]string, 0, len(levels))
+	for _, l := range levels {
+		if r, ok := levelRanges[l]; ok {
+			parts = append(parts, r)
+		}
+	}
+	if len(parts) == 0 {
+		return "0" // only unknown levels: match nothing
+	}
+	return "(" + strings.Join(parts, " OR ") + ")"
+}
+
 func logFilter(q domain.LogQuery) *where {
 	w := (&where{}).
 		and("timestamp >= fromUnixTimestamp64Nano(?)", nanos(q.Range.From)).
 		and("timestamp < fromUnixTimestamp64Nano(?)", nanos(q.Range.To)).
 		andIf(q.Service != "", "service_name = ?", q.Service).
 		andIf(q.MinSeverity > 0, minSeverity, q.MinSeverity, q.MinSeverity).
+		andIf(len(q.Levels) > 0, levelsCond(q.Levels)).
 		andIf(!q.Before.IsZero(), "timestamp < fromUnixTimestamp64Nano(?)", nanos(q.Before))
 	if q.TraceID != nil {
 		w.and("trace_id = unhex(?)", hexID(q.TraceID[:]))
@@ -297,7 +322,8 @@ func (r *Repository) LogHistogram(ctx context.Context, q domain.LogQuery, step t
 			and("ts >= fromUnixTimestamp(?)", minuteFloor(q.Range.From)).
 			and("ts < fromUnixTimestamp(?)", q.Range.To.Unix()).
 			andIf(q.Service != "", "service_name = ?", q.Service).
-			andIf(q.MinSeverity > 0, minSeverity, q.MinSeverity, q.MinSeverity)
+			andIf(q.MinSeverity > 0, minSeverity, q.MinSeverity, q.MinSeverity).
+			andIf(len(q.Levels) > 0, levelsCond(q.Levels))
 		query = `SELECT toStartOfInterval(ts, toIntervalSecond(?)) AS t,` + levelCounts + `
 			FROM (SELECT ts, severity_number, records AS n FROM log_counts_1m ` + w.String() + `)
 			GROUP BY t ORDER BY t`

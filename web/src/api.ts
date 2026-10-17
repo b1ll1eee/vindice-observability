@@ -105,6 +105,7 @@ export interface Trace {
 export interface LogFilter {
   service?: string
   severity?: number
+  level?: string // comma-separated exact levels: debug,info,warn,error
   q?: string
   trace_id?: string
 }

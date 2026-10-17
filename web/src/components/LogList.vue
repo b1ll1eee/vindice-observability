@@ -71,7 +71,8 @@ async function copy(text: string) {
               </RouterLink>
             </template>
           </div>
-          <div class="attrs">
+          <!-- Not "attrs": scoped styles reach a child component's root, and AttrTable's root is .attrs. -->
+          <div class="attr-grid">
             <AttrTable title="Attributes" :attrs="l.attributes" />
             <AttrTable title="Resource" :attrs="l.resource" />
           </div>
@@ -103,6 +104,6 @@ mark { background: color-mix(in srgb, var(--warn) 35%, transparent); color: inhe
 .full { white-space: pre-wrap; word-break: break-word; margin: 0 0 10px; font-size: 12.5px; }
 .meta { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
 .meta .small { margin-right: auto; }
-.attrs { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; }
+.attr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; align-items: start; }
 .list > :last-child { border-bottom: none; }
 </style>

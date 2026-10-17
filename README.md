@@ -3,8 +3,8 @@
 Self-hosted observability for logs, traces and metrics. Search every log, see the logs inside each trace, get alerts in Telegram, and run it all on one small server.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.svg">
-  <img alt="Vindice architecture: sources send OTLP or Prometheus remote write to vindice ingest, Kafka buffers it, the vindice writer samples and batches it into ClickHouse, and vindice query and alert read from ClickHouse for the UI and Telegram." src="docs/assets/architecture-light.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/services-dark.png">
+  <img alt="Vindice services page: summary tiles and a table of services with health badges, request rate, error rate and latency percentiles." src="docs/assets/screenshots/services-light.png">
 </picture>
 
 ## What you get
@@ -17,6 +17,27 @@ Self-hosted observability for logs, traces and metrics. Search every log, see th
 | **Metrics and dashboards** | Chart any metric (`rate`, `avg`, `max`, ...), group it by an attribute, and pin charts to dashboards | team leads, SRE |
 | **Alerts** | Thresholds on error rate, latency, metrics or log counts, sent to Telegram on firing and on resolve | whoever is on call |
 | **Team access** | Sign-in with viewer, editor and admin roles, plus API keys for the services that send data | admins |
+
+## A closer look
+
+| | |
+|---|---|
+| <picture>   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/logs-dark.png">   <img alt="Logs page with full-text search, one-click level filters with counts, a level histogram and colour-coded log lines." src="docs/assets/screenshots/logs-light.png"> </picture> | <picture>   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/trace-dark.png">   <img alt="Trace view: summary header, span waterfall, and the logs written inside the trace on the same page." src="docs/assets/screenshots/trace-light.png"> </picture> |
+| **Logs.** Search every line, filter by level, see the volume per level over time. | **Traces.** The waterfall and the logs written inside that request, on one page. |
+| <picture>   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/service-dark.png">   <img alt="Service page with summary tiles, request, error rate and latency charts, and a per-operation table." src="docs/assets/screenshots/service-light.png"> </picture> | <picture>   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/dashboard-dark.png">   <img alt="Dashboard with four panels: requests per minute, error rate, latency p95 and warning count." src="docs/assets/screenshots/dashboard-light.png"> </picture> |
+| **Services.** Request rate, errors and latency for each service and operation. | **Dashboards.** Pin service measures, metrics and log counts to shared dashboards. |
+
+## How it works
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.svg">
+  <img alt="Vindice architecture: sources send OTLP or Prometheus remote write to vindice ingest, Kafka buffers it, the vindice writer samples and batches it into ClickHouse, and vindice query and alert read from ClickHouse for the UI and Telegram." src="docs/assets/architecture-light.svg">
+</picture>
+
+Data flows left to right:
+- **Ingest.** Applications send OTLP (or Prometheus remote write) with an API key. Ingest acknowledges a request only after Kafka has it.
+- **Writer.** It drops noise, samples traces (every failing or slow trace is kept), counts request metrics before sampling, and writes large batches to ClickHouse.
+- **Query and alert.** Both read from ClickHouse, using pre-aggregated per-minute tables wherever possible.
 
 ## Why Vindice
 

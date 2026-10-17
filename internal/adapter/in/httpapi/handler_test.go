@@ -59,7 +59,7 @@ func TestLogsParsesFilters(t *testing.T) {
 		Next:    now,
 	}}
 	id := "ab000000000000000000000000000000"
-	url := fmt.Sprintf("/api/v1/logs?from=1000&to=2000&service=api&severity=13&q=db+timeout&trace_id=%s&before=42&limit=5", id)
+	url := fmt.Sprintf("/api/v1/logs?from=1000&to=2000&service=api&severity=13&level=warn,error&q=db+timeout&trace_id=%s&before=42&limit=5", id)
 	rec, body := get(t, q, url)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code %d: %s", rec.Code, rec.Body)
@@ -67,7 +67,8 @@ func TestLogsParsesFilters(t *testing.T) {
 	g := q.gotLog
 	if g.Range.From.UnixMilli() != 1000 || g.Range.To.UnixMilli() != 2000 || g.Service != "api" ||
 		g.MinSeverity != 13 || g.Text != "db timeout" || g.TraceID == nil || g.TraceID[0] != 0xab ||
-		g.Before.UnixNano() != 42 || g.Limit != 5 {
+		g.Before.UnixNano() != 42 || g.Limit != 5 ||
+		len(g.Levels) != 2 || g.Levels[0] != domain.LevelWarn || g.Levels[1] != domain.LevelError {
 		t.Errorf("query = %+v", g)
 	}
 	logs := body["logs"].([]any)
@@ -91,6 +92,7 @@ func TestErrorMapping(t *testing.T) {
 	}{
 		{"/api/v1/logs?from=abc", nil, http.StatusBadRequest},
 		{"/api/v1/logs?trace_id=xyz", nil, http.StatusBadRequest},
+		{"/api/v1/logs?level=fatal", nil, http.StatusBadRequest},
 		{"/api/v1/traces/not-hex", nil, http.StatusBadRequest},
 		{"/api/v1/traces/00000000000000000000000000000001", domain.ErrNotFound, http.StatusNotFound},
 		{"/api/v1/services", domain.ErrInvalidQuery, http.StatusBadRequest},
