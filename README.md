@@ -2,7 +2,7 @@
 
 Lightweight, self-hosted observability for logs, traces and metrics. Data comes in over OpenTelemetry (OTLP), is buffered in Kafka, and is stored in ClickHouse.
 
-> **Status:** phases 1–4 are done: ingest, storage, query API, UI (services, logs, traces, metrics explorer, dashboards), alerting to Telegram, sign-in with roles, API keys for ingest, and Prometheus remote write.
+> **Status:** phases 1–4 are done: ingest, storage, query API, UI (services, logs, traces, metrics explorer, dashboards), alerting to Telegram, sign-in with roles, API keys for ingest, Prometheus remote write, and a Go SDK.
 
 ```
 app (OTel SDK) ──OTLP──▶ ingest ──zstd──▶ Kafka ──▶ writer ──batch──▶ ClickHouse
@@ -60,6 +60,21 @@ Security details:
 - **CSRF.** State-changing requests from another origin are refused.
 - **Safe user management.** The last active admin cannot be demoted, disabled or deleted, and admins cannot delete themselves.
 - **Session key.** If `VINDICE_SESSION_SECRET` is empty, a key is generated and stored in ClickHouse, shared by every instance.
+
+## Go SDK
+
+Go services connect with one call. The SDK lives in its own module, so importing it brings in only OpenTelemetry and none of the server's dependencies. See [`sdk/README.md`](sdk/README.md).
+
+```go
+import vindice "github.com/b1ll1eee/vindice-obs/sdk"
+
+sdk, _ := vindice.Start(ctx, vindice.Config{ServiceName: "orders"}) // VINDICE_ENDPOINT, VINDICE_API_KEY
+defer sdk.Shutdown(context.Background())
+log := sdk.Logger()                                // slog, linked to traces
+http.ListenAndServe(":8080", vindice.Handler(mux, "orders"))
+```
+
+Everything under `internal/` stays private to the server. The SDK is the supported way to integrate from other repositories.
 
 ## Prometheus remote write
 
@@ -169,6 +184,7 @@ internal/adapter/
   out/authcrypto            bcrypt PasswordHasher, HMAC SessionCodec
   otlpmap/                  OTLP protobuf → domain
 web/                        Vue UI, embedded into the binary
+sdk/                        Go SDK (separate module: github.com/b1ll1eee/vindice-obs/sdk)
 ```
 
 Reads and writes go through separate ports (CQRS). This lets the read side use rollups and the query cache without touching the write path.
