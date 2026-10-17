@@ -31,7 +31,9 @@ git:
 
 changelog:
   sort: asc
-  use: github
+  use: git
+  abbrev: 7
+  format: "{{ .Message }} ({{ .SHA }})"
   filters:
     exclude: ["^docs", "^chore", "^test", "(?i)readme"]
   groups:
@@ -46,6 +48,6 @@ changelog:
 
 release:
   draft: true          # review the notes, then publish by hand
-  prerelease: auto     # v0.x and -rc tags are marked as pre-releases
+  prerelease: auto     # tags like v1.2.0-rc.1 are marked as pre-releases
   footer: |
     **Docker:** `docker pull ghcr.io/b1ll1eee/vindice-observability:{{ .Version }}`
