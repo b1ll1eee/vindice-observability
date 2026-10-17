@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1170" height="500" viewBox="0 0 1170 500" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b7385"/></marker></defs>
+<rect width="1170" height="500" fill="#0f1115"/>
+<text x="24" y="38" font-size="17" font-weight="700" fill="#e6e8ec">Vindice architecture</text>
+<rect x="24" y="289" width="14" height="14" rx="3" fill="#1c1a33" stroke="#8f82ff" stroke-width="1.5"/>
+<text x="48" y="300" font-size="12.5" fill="#9aa2b0">vindice: one Go binary, run as all, ingest,</text>
+<text x="48" y="324" font-size="12.5" fill="#9aa2b0">writer, query or alert</text>
+<rect x="24" y="343" width="14" height="14" rx="3" fill="#11262a" stroke="#3cc8d4" stroke-width="1.5"/>
+<text x="48" y="354" font-size="12.5" fill="#9aa2b0">Storage: Kafka buffer, ClickHouse</text>
+<rect x="24" y="367" width="14" height="14" rx="3" fill="#161920" stroke="#2c313b" stroke-width="1.5"/>
+<text x="48" y="378" font-size="12.5" fill="#9aa2b0">Outside Vindice</text>
+<path d="M214,87.0 H235.0 V147.0 H254" fill="none" stroke="#6b7385" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M214,147.0 H254" fill="none" stroke="#6b7385" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M214,207.0 H235.0 V147.0 H254" fill="none" stroke="#6b7385" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M446,147.0 H486" fill="none" stroke="#6b7385" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M678,147.0 H718" fill="none" stroke="#6b7385" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M910,147.0 H950" fill="none" stroke="#6b7385" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M1047.0,232 V280" fill="none" stroke="#6b7385" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M1047.0,232 V257.0 H815.0 V280" fill="none" stroke="#6b7385" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M815.0,374 V418" fill="none" stroke="#6b7385" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M1047.0,374 V418" fill="none" stroke="#6b7385" stroke-width="1.6" marker-end="url(#arrow)"/>
+<rect x="24" y="62" width="190" height="50" rx="9" fill="#161920" stroke="#2c313b" stroke-width="1"/>
+<text x="38" y="86" font-size="14" font-weight="700" fill="#e6e8ec">Go SDK</text>
+<text x="38" y="108" font-size="12.5" fill="#9aa2b0">vindice.Start(...)</text>
+<rect x="24" y="122" width="190" height="50" rx="9" fill="#161920" stroke="#2c313b" stroke-width="1"/>
+<text x="38" y="146" font-size="14" font-weight="700" fill="#e6e8ec">OpenTelemetry</text>
+<text x="38" y="168" font-size="12.5" fill="#9aa2b0">any SDK, Collector, Alloy</text>
+<rect x="24" y="182" width="190" height="50" rx="9" fill="#161920" stroke="#2c313b" stroke-width="1"/>
+<text x="38" y="206" font-size="14" font-weight="700" fill="#e6e8ec">Prometheus</text>
+<text x="38" y="228" font-size="12.5" fill="#9aa2b0">remote write 1.0</text>
+<rect x="256" y="62" width="190" height="170" rx="9" fill="#1c1a33" stroke="#8f82ff" stroke-width="2"/>
+<text x="270" y="86" font-size="14" font-weight="700" fill="#8f82ff">vindice ingest</text>
+<text x="270" y="108" font-size="12.5" fill="#e6e8ec">:4317  OTLP gRPC</text>
+<text x="270" y="128" font-size="12.5" fill="#e6e8ec">:4318  OTLP HTTP</text>
+<text x="270" y="148" font-size="12.5" fill="#e6e8ec">/api/v1/write  remote write</text>
+<text x="270" y="168" font-size="12.5" fill="#e6e8ec">API key check (vdc_...)</text>
+<rect x="488" y="62" width="190" height="170" rx="9" fill="#11262a" stroke="#3cc8d4" stroke-width="2"/>
+<text x="502" y="86" font-size="14" font-weight="700" fill="#3cc8d4">Kafka</text>
+<text x="502" y="108" font-size="12.5" fill="#9aa2b0">durable buffer</text>
+<text x="502" y="128" font-size="12.5" fill="#9aa2b0">ack only after write</text>
+<text x="502" y="148" font-size="12.5" fill="#9aa2b0">replay after outages</text>
+<text x="502" y="168" font-size="12.5" fill="#9aa2b0">zstd compressed</text>
+<rect x="720" y="62" width="190" height="170" rx="9" fill="#1c1a33" stroke="#8f82ff" stroke-width="2"/>
+<text x="734" y="86" font-size="14" font-weight="700" fill="#8f82ff">vindice writer</text>
+<text x="734" y="108" font-size="12.5" fill="#e6e8ec">drop rules</text>
+<text x="734" y="128" font-size="12.5" fill="#e6e8ec">tail sampling</text>
+<text x="734" y="148" font-size="12.5" fill="#e6e8ec">RED before sampling</text>
+<text x="734" y="168" font-size="12.5" fill="#e6e8ec">dedupe, large batches</text>
+<rect x="952" y="62" width="190" height="170" rx="9" fill="#11262a" stroke="#3cc8d4" stroke-width="2"/>
+<text x="966" y="86" font-size="14" font-weight="700" fill="#3cc8d4">ClickHouse</text>
+<text x="966" y="108" font-size="12.5" fill="#9aa2b0">logs, spans, metrics</text>
+<text x="966" y="128" font-size="12.5" fill="#9aa2b0">1m / 1h rollups</text>
+<text x="966" y="148" font-size="12.5" fill="#9aa2b0">per-severity retention</text>
+<text x="966" y="168" font-size="12.5" fill="#9aa2b0">token + bloom indexes</text>
+<rect x="720" y="282" width="190" height="92" rx="9" fill="#1c1a33" stroke="#8f82ff" stroke-width="2"/>
+<text x="734" y="306" font-size="14" font-weight="700" fill="#8f82ff">vindice alert</text>
+<text x="734" y="328" font-size="12.5" fill="#e6e8ec">rules every 30s</text>
+<text x="734" y="348" font-size="12.5" fill="#e6e8ec">ok, pending, firing</text>
+<rect x="952" y="282" width="190" height="92" rx="9" fill="#1c1a33" stroke="#8f82ff" stroke-width="2"/>
+<text x="966" y="306" font-size="14" font-weight="700" fill="#8f82ff">vindice query  :8080</text>
+<text x="966" y="328" font-size="12.5" fill="#e6e8ec">REST API + embedded UI</text>
+<text x="966" y="348" font-size="12.5" fill="#e6e8ec">login, roles</text>
+<rect x="720" y="420" width="190" height="54" rx="9" fill="#161920" stroke="#2c313b" stroke-width="1"/>
+<text x="734" y="444" font-size="14" font-weight="700" fill="#e6e8ec">Telegram</text>
+<text x="734" y="466" font-size="12.5" fill="#9aa2b0">firing / resolved</text>
+<rect x="952" y="420" width="190" height="54" rx="9" fill="#161920" stroke="#2c313b" stroke-width="1"/>
+<text x="966" y="444" font-size="14" font-weight="700" fill="#e6e8ec">Your team</text>
+<text x="966" y="466" font-size="12.5" fill="#9aa2b0">browser</text>
+</svg>
