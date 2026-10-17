@@ -1,0 +1,62 @@
+{
+  "system": "loki",
+  "records": 2000000,
+  "idle_before_mib": [
+    47,
+    {
+      "lbench-loki-1": 47
+    }
+  ],
+  "ingest": {
+    "records": 2000000,
+    "batches_ok": 2000,
+    "batches_failed": 0,
+    "seconds": 3.97,
+    "records_per_sec": 503561,
+    "raw_body_bytes": 131521217,
+    "t0_ms": 1792267928022,
+    "t1_ms": 1792270928022
+  },
+  "end_to_end_seconds": 7.6,
+  "end_to_end_records_per_sec": 263158,
+  "queryable_records": 2000000,
+  "peak_during_ingest_mib": 1029,
+  "peak_per_container_mib": {
+    "lbench-loki-1": 1029
+  },
+  "queries": {
+    "needle": {
+      "median_ms": 1111.1,
+      "min_ms": 1048.2,
+      "max_ms": 1681.2,
+      "rows": 50
+    },
+    "user_id": {
+      "median_ms": 1107.7,
+      "min_ms": 1066.1,
+      "max_ms": 1131.4,
+      "rows": 13
+    },
+    "service_level_text": {
+      "median_ms": 91.2,
+      "min_ms": 85.7,
+      "max_ms": 97.5,
+      "rows": 1000
+    },
+    "level_histogram": {
+      "median_ms": 2669.7,
+      "min_ms": 1985.1,
+      "max_ms": 3139.0,
+      "rows": 51
+    }
+  },
+  "idle_after_mib": [
+    889,
+    {
+      "lbench-loki-1": 889
+    }
+  ],
+  "disk_bytes": {
+    "lbench_loki-data": 403406848
+  }
+}

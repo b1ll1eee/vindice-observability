@@ -27,7 +27,7 @@
 
 - **Find the log in seconds.** Search the text of every log line, then narrow it down with one-click level filters that show their counts. There are no label rules to design up front.
 - **See the logs inside each trace.** Open a slow or failing request, and the log lines it wrote are on the same page as its spans.
-- **Small enough for one server.** It runs as three containers (vindice, Kafka, ClickHouse). Measured at idle with demo data, they used about 1.5 GB of RAM together. A 2-million-record burst needs more; see the [benchmark](docs/benchmark.md).
+- **Small enough for one server.** It runs as three containers (vindice, Kafka, ClickHouse). Measured at idle with demo data, they used about 1.5 GB of RAM together. Under a 2-million-record burst they peaked at about 1.2 GB ([benchmark](docs/benchmark.md)).
 - **Nothing is lost when storage hiccups.** Ingest answers a request only after Kafka has the data, and the writer catches up once ClickHouse is back.
 - **Alerts where your team already is.** Rules on error rate, latency, metrics or log counts post to Telegram when they fire and again when they resolve.
 
@@ -113,7 +113,7 @@ Compared with running the Grafana LGTM stack (Loki, Grafana, Tempo, Mimir) yours
 | **When storage is down** | Kafka holds incoming data until the writer catches up | Depends on each component's write-ahead log |
 
 **Where LGTM is still ahead:**
-- New data becomes searchable sooner, and memory stays lower under heavy ingest ([benchmark](docs/benchmark.md)).
+- New data becomes searchable sooner (about 8 s against 37 s for 2 million logs), and Loki alone idles on far less memory ([benchmark](docs/benchmark.md)).
 - PromQL, and its large catalogue of ready-made dashboards and exporters.
 - Mature alert routing, such as silences and on-call schedules.
 - Long retention on object storage from the start.
@@ -202,7 +202,6 @@ make web-dev       # UI with hot reload on :5173 (API on :8080)
 Everything above works today with Docker Compose. Known limits are listed in the [reference](docs/reference.md#known-limits). The main ones:
 - **Single instances.** Tail sampling needs a single writer, and alerting needs a single evaluator.
 - **Not stored yet.** Exponential histograms are skipped.
-- **Memory under heavy ingest.** The default 512 MB limit for the vindice container is too small for a large burst, and memory is not given back afterwards ([benchmark](docs/benchmark.md#what-this-found-in-vindice)).
 
 ## License
 

@@ -48,7 +48,7 @@ services:
       timeout: 5s
       retries: 24
   vindice:
-    image: ghcr.io/b1ll1eee/vindice-observability:0.1.0
+    image: ${VINDICE_IMAGE:-ghcr.io/b1ll1eee/vindice-observability:0.1.0}
     command: ["-mode=all"]
     env_file: [bench.env]
     environment:
@@ -57,8 +57,9 @@ services:
       VINDICE_CH_USER: vindice
       VINDICE_CH_PASSWORD: vindice
       VINDICE_ADMIN_USERNAME: admin
+      GOMEMLIMIT: 400MiB
     ports: ["14318:4318", "18080:8080"]
-    mem_limit: 1536m   # raised from 512m: the default was OOM-killed under this load
+    mem_limit: 512m
     depends_on:
       kafka: { condition: service_healthy }
       clickhouse: { condition: service_healthy }
