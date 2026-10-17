@@ -1,0 +1,113 @@
+{
+  "system": "vindice",
+  "records": 2000000,
+  "idle_before_mib": [
+    587,
+    {
+      "vbench-vindice-1": 11,
+      "vbench-kafka-1": 336,
+      "vbench-clickhouse-1": 240
+    }
+  ],
+  "ingest": {
+    "records": 2000000,
+    "batches_ok": 2000,
+    "batches_failed": 0,
+    "seconds": 5.44,
+    "records_per_sec": 367647,
+    "raw_body_bytes": 131521217,
+    "t0_ms": 1792266132639,
+    "t1_ms": 1792269132639
+  },
+  "end_to_end_seconds": 37.2,
+  "end_to_end_records_per_sec": 53763,
+  "queryable_records": 2000000,
+  "peak_during_ingest_mib": 2772,
+  "peak_per_container_mib": {
+    "vbench-vindice-1": 1536,
+    "vbench-kafka-1": 521,
+    "vbench-clickhouse-1": 810
+  },
+  "queries": {
+    "needle": {
+      "median_ms": 34.2,
+      "min_ms": 29.6,
+      "max_ms": 39.7,
+      "rows": 50
+    },
+    "user_id": {
+      "median_ms": 14.8,
+      "min_ms": 14.5,
+      "max_ms": 15.7,
+      "rows": 13
+    },
+    "service_level_text": {
+      "median_ms": 21.6,
+      "min_ms": 18.5,
+      "max_ms": 29.3,
+      "rows": 1000
+    },
+    "level_histogram": {
+      "median_ms": 2.5,
+      "min_ms": 2.0,
+      "max_ms": 4.7,
+      "rows": 53
+    }
+  },
+  "idle_after_mib": [
+    2274,
+    {
+      "vbench-vindice-1": 1536,
+      "vbench-kafka-1": 433,
+      "vbench-clickhouse-1": 305
+    }
+  ],
+  "disk_bytes": {
+    "vbench_clickhouse-data": 57286656,
+    "vbench_kafka-data": 47394816
+  },
+  "clickhouse_tables": [
+    [
+      "logs",
+      2000000,
+      42228338,
+      279542438,
+      49801292
+    ],
+    [
+      "log_counts_1m",
+      1632,
+      5851,
+      22951,
+      6421
+    ],
+    [
+      "api_key_use",
+      2,
+      156,
+      56,
+      1080
+    ],
+    [
+      "users",
+      1,
+      381,
+      314,
+      910
+    ],
+    [
+      "resources",
+      8,
+      403,
+      451,
+      891
+    ],
+    [
+      "api_keys",
+      1,
+      356,
+      264,
+      885
+    ]
+  ]
+}

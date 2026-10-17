@@ -1,0 +1,1 @@
+{"config":"repo default (vindice mem_limit 512m)","load":"2,000,000 records, batches of 1000, 8 concurrent requests, OTLP/HTTP protobuf","outcome":"vindice container OOM-killed (exit 137, OOMKilled=true) during ingest, ~2026-10-17T20:31Z"}
