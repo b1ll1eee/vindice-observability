@@ -19,11 +19,16 @@ type fakeReader struct {
 	known     bool
 	spans     []domain.SpanRow
 
-	gotLogQuery  domain.LogQuery
-	gotStep      time.Duration
-	gotRollup    bool
-	gotLogsRange domain.TimeRange
-	gotResIDs    []uint64
+	series        []domain.SeriesInfo
+	metricBuckets []domain.MetricBucket
+
+	gotBucketRange domain.TimeRange
+	gotRes         domain.Resolution
+	gotLogQuery    domain.LogQuery
+	gotStep        time.Duration
+	gotRollup      bool
+	gotLogsRange   domain.TimeRange
+	gotResIDs      []uint64
 }
 
 func (f *fakeReader) ServiceRED(context.Context, domain.TimeRange) ([]domain.ServiceSummary, error) {
@@ -59,6 +64,19 @@ func (f *fakeReader) TraceLogs(_ context.Context, _ [16]byte, r domain.TimeRange
 func (f *fakeReader) Resources(_ context.Context, ids []uint64) (map[uint64]map[string]string, error) {
 	f.gotResIDs = ids
 	return map[uint64]map[string]string{}, nil
+}
+func (f *fakeReader) MetricNames(context.Context, string, domain.TimeRange) ([]domain.MetricName, error) {
+	return nil, nil
+}
+func (f *fakeReader) MetricSeries(context.Context, string, string, map[string]string, int) ([]domain.SeriesInfo, error) {
+	return f.series, nil
+}
+func (f *fakeReader) MetricBuckets(_ context.Context, _ []uint64, r domain.TimeRange, step time.Duration, res domain.Resolution) ([]domain.MetricBucket, error) {
+	f.gotBucketRange, f.gotStep, f.gotRes = r, step, res
+	return f.metricBuckets, nil
+}
+func (f *fakeReader) ServiceSeries(context.Context, string, domain.TimeRange, time.Duration) ([]domain.REDPoint, error) {
+	return nil, nil
 }
 
 var t0 = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)

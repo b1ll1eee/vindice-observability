@@ -55,6 +55,40 @@ type TelemetryReader interface {
 	TraceSpans(ctx context.Context, id [16]byte, r domain.TimeRange) ([]domain.SpanRow, error)
 	TraceLogs(ctx context.Context, id [16]byte, r domain.TimeRange) ([]domain.LogEntry, error)
 	Resources(ctx context.Context, ids []uint64) (map[uint64]map[string]string, error)
+
+	MetricNames(ctx context.Context, service string, r domain.TimeRange) ([]domain.MetricName, error)
+	// MetricSeries returns at most limit series matching name, service and filters.
+	MetricSeries(ctx context.Context, name, service string, filters map[string]string, limit int) ([]domain.SeriesInfo, error)
+	MetricBuckets(ctx context.Context, ids []uint64, r domain.TimeRange, step time.Duration, res domain.Resolution) ([]domain.MetricBucket, error)
+	ServiceSeries(ctx context.Context, service string, r domain.TimeRange, step time.Duration) ([]domain.REDPoint, error)
+}
+
+type DashboardRepository interface {
+	ListDashboards(ctx context.Context) ([]domain.Dashboard, error)
+	GetDashboard(ctx context.Context, id string) (domain.Dashboard, bool, error)
+	SaveDashboard(ctx context.Context, d domain.Dashboard) error
+	DeleteDashboard(ctx context.Context, id string) error
+}
+
+type AlertRuleRepository interface {
+	ListRules(ctx context.Context) ([]domain.AlertRule, error)
+	GetRule(ctx context.Context, id string) (domain.AlertRule, bool, error)
+	SaveRule(ctx context.Context, r domain.AlertRule) error
+	DeleteRule(ctx context.Context, id string) error
+}
+
+// AlertStateRepository persists evaluator state, so a restart neither
+// re-sends nor forgets a firing alert, and keeps the event history.
+type AlertStateRepository interface {
+	LoadStatuses(ctx context.Context) (map[string]domain.AlertStatus, error)
+	SaveStatuses(ctx context.Context, s []domain.AlertStatus) error
+	AppendEvents(ctx context.Context, e []domain.AlertEvent) error
+	Events(ctx context.Context, ruleID string, limit int) ([]domain.AlertEvent, error)
+}
+
+// Notifier delivers alert notifications (Telegram, ...).
+type Notifier interface {
+	Notify(ctx context.Context, n domain.Notification) error
 }
 
 // SchemaMigrator creates or updates the storage schema.

@@ -21,6 +21,9 @@ function onRange(e: Event) {
       <RouterLink :to="{ path: '/services', query: { range: key } }">Services</RouterLink>
       <RouterLink :to="{ path: '/logs', query: { range: key } }">Logs</RouterLink>
       <RouterLink :to="{ path: '/traces', query: { range: key } }">Traces</RouterLink>
+      <RouterLink :to="{ path: '/explore', query: { range: key } }">Explore</RouterLink>
+      <RouterLink :to="{ path: '/dashboards', query: { range: key } }">Dashboards</RouterLink>
+      <RouterLink to="/alerts">Alerts</RouterLink>
     </nav>
     <div class="main">
       <header class="topbar">

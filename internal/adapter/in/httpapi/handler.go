@@ -15,13 +15,27 @@ import (
 )
 
 type Handler struct {
-	q   port.Querier
-	log *slog.Logger
+	q          port.Querier
+	metrics    port.MetricsQuerier
+	dashboards port.DashboardManager
+	alerts     port.AlertManager
+	log        *slog.Logger
 }
 
-// New returns the API under /api/v1. Every other path goes to ui, which may be nil.
-func New(q port.Querier, ui http.Handler, log *slog.Logger) http.Handler {
-	h := &Handler{q: q, log: log}
+type Deps struct {
+	Querier    port.Querier
+	Metrics    port.MetricsQuerier
+	Dashboards port.DashboardManager
+	Alerts     port.AlertManager
+	// UI serves every path outside /api; may be nil.
+	UI  http.Handler
+	Log *slog.Logger
+}
+
+// New returns the API under /api/v1. Route groups whose dependency is nil
+// are not registered.
+func New(d Deps) http.Handler {
+	h := &Handler{q: d.Querier, metrics: d.Metrics, dashboards: d.Dashboards, alerts: d.Alerts, log: d.Log}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/services", h.services)
 	mux.HandleFunc("GET /api/v1/services/{service}/operations", h.operations)
@@ -29,12 +43,33 @@ func New(q port.Querier, ui http.Handler, log *slog.Logger) http.Handler {
 	mux.HandleFunc("GET /api/v1/logs/histogram", h.histogram)
 	mux.HandleFunc("GET /api/v1/traces", h.traces)
 	mux.HandleFunc("GET /api/v1/traces/{id}", h.trace)
+	if d.Metrics != nil {
+		mux.HandleFunc("GET /api/v1/services/{service}/series", h.serviceSeries)
+		mux.HandleFunc("GET /api/v1/metrics", h.metricNames)
+		mux.HandleFunc("GET /api/v1/metrics/query", h.queryMetric)
+	}
+	if d.Dashboards != nil {
+		mux.HandleFunc("GET /api/v1/dashboards", h.listDashboards)
+		mux.HandleFunc("POST /api/v1/dashboards", h.saveDashboard)
+		mux.HandleFunc("GET /api/v1/dashboards/{id}", h.getDashboard)
+		mux.HandleFunc("PUT /api/v1/dashboards/{id}", h.saveDashboard)
+		mux.HandleFunc("DELETE /api/v1/dashboards/{id}", h.deleteDashboard)
+	}
+	if d.Alerts != nil {
+		mux.HandleFunc("GET /api/v1/alerts", h.listRules)
+		mux.HandleFunc("POST /api/v1/alerts", h.saveRule)
+		mux.HandleFunc("GET /api/v1/alerts/events", h.alertEvents)
+		mux.HandleFunc("GET /api/v1/alerts/{id}", h.getRule)
+		mux.HandleFunc("PUT /api/v1/alerts/{id}", h.saveRule)
+		mux.HandleFunc("DELETE /api/v1/alerts/{id}", h.deleteRule)
+		mux.HandleFunc("POST /api/v1/alerts/{id}/test", h.testRule)
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "no such endpoint")
 	})
-	if ui != nil {
-		mux.Handle("/", ui)
+	if d.UI != nil {
+		mux.Handle("/", d.UI)
 	}
 	return mux
 }
@@ -238,6 +273,10 @@ func (p *params) nanos(k string) (t time.Time) {
 
 func (p *params) timeRange() domain.TimeRange {
 	return domain.TimeRange{From: p.millis("from"), To: p.millis("to")}
+}
+
+func isClientError(err error) bool {
+	return errors.Is(err, domain.ErrInvalidQuery) || errors.Is(err, domain.ErrNotFound)
 }
 
 func (h *Handler) fail(w http.ResponseWriter, err error) {

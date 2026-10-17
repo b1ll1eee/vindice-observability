@@ -44,7 +44,7 @@ func (f *fakeQuerier) Trace(context.Context, [16]byte) (domain.Trace, error) { r
 
 func get(t *testing.T, q *fakeQuerier, url string) (*httptest.ResponseRecorder, map[string]any) {
 	t.Helper()
-	h := New(q, http.NotFoundHandler(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := New(Deps{Querier: q, UI: http.NotFoundHandler(), Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, url, nil))
 	var body map[string]any
@@ -106,7 +106,7 @@ func TestErrorMapping(t *testing.T) {
 }
 
 func TestServicesDTO(t *testing.T) {
-	h := New(&fakeQuerier{}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := New(Deps{Querier: &fakeQuerier{}, Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/services", nil))
 	var got []map[string]any

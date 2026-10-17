@@ -2,7 +2,7 @@
 
 Lightweight, self-hosted observability for logs, traces and metrics. Data comes in over OpenTelemetry (OTLP), is buffered in Kafka, and is stored in ClickHouse.
 
-> **Status:** phases 1 and 2 are done: ingest, storage, the query API and a UI for services, log search and traces. Dashboards and alerting are next.
+> **Status:** phases 1–3 are done: ingest, storage, query API, UI (services, logs, traces, metrics explorer, dashboards) and alerting to Telegram.
 
 ```
 app (OTel SDK) ──OTLP──▶ ingest ──zstd──▶ Kafka ──▶ writer ──batch──▶ ClickHouse
@@ -29,6 +29,24 @@ Point any OpenTelemetry SDK or Collector at `localhost:4317` (gRPC) or `http://l
 - **Logs.** Full-text search, filters for service and severity, a histogram coloured by level, and paging. Each log links to its trace.
 - **Traces.** Filters for service, minimum duration and errors only.
 - **Trace view.** A waterfall with span details, events and attributes. The logs emitted inside the trace appear on the same page, and can be narrowed to the selected span.
+- **Explore.** Chart any metric. Choose an aggregation (`avg`, `sum`, `min`, `max`, `count`, `last`, or `rate`, which handles counter resets), filter by attributes and group by one attribute. Add the chart to a dashboard.
+- **Dashboards.** A grid of panels. Each panel charts a service RED measure, a metric query or a log count. Raw samples, 1-minute or 1-hour rollups are picked automatically from the time range.
+- **Alerts.** A rule watches the same kinds of signals as a panel. It fires when the value over a window crosses a threshold for a set time, and moves through `ok → pending → firing → ok`. Notifications go to Telegram on firing and on resolve. A **Test** button sends a sample message.
+
+## Alerts to Telegram
+
+1. Create a bot with [@BotFather](https://t.me/BotFather) and add it to your group.
+2. Find the chat id with `curl https://api.telegram.org/bot<TOKEN>/getUpdates`. Group ids are negative.
+3. Copy `deploy/.env.example` to `deploy/.env` and set `VINDICE_TELEGRAM_BOT_TOKEN` and `VINDICE_TELEGRAM_CHAT_ID`. The `.env` file is git-ignored.
+4. Run `make up`, create a rule under **Alerts**, then press **Test**.
+
+Without a token, alerts are still evaluated and recorded, and the messages go to the vindice log instead (see `make logs`).
+
+How the evaluator behaves:
+- **One evaluator only.** Run exactly one process with `-mode=all` or `-mode=alert`, otherwise every notification is sent twice.
+- **State survives restarts.** Rule state is stored in ClickHouse, so a restart neither re-sends nor forgets a firing alert.
+- **Failed queries are not recoveries.** A failed query keeps the current state.
+- **Telegram errors are handled.** The notifier retries rate limits (`retry_after`) and 5xx responses, and removes the bot token from every error message.
 
 The UI is Vue 3 + TypeScript with no UI or chart library. It is built into `web/dist` and embedded into the Go binary, so a deployment is still one binary. For development, run `make web-dev` (hot reload on :5173, which proxies `/api` to :8080).
 
@@ -42,6 +60,13 @@ The UI is Vue 3 + TypeScript with no UI or chart library. It is built into `web/
 | `GET /api/v1/logs/histogram` | log counts per level, with the same filters |
 | `GET /api/v1/traces` | root spans: `service`, `min_duration_ms`, `errors`, `limit` |
 | `GET /api/v1/traces/{id}` | spans, logs and resources of one trace |
+| `GET /api/v1/services/{service}/series` | RED over time |
+| `GET /api/v1/metrics` | metric names |
+| `GET /api/v1/metrics/query` | `name`, `agg`, `service`, `group_by`, `filter=key:value` (repeatable) |
+| `GET POST /api/v1/dashboards`, `GET PUT DELETE /api/v1/dashboards/{id}` | dashboards |
+| `GET POST /api/v1/alerts`, `GET PUT DELETE /api/v1/alerts/{id}` | alert rules, with current state |
+| `POST /api/v1/alerts/{id}/test` | send a test notification |
+| `GET /api/v1/alerts/events` | firing and resolved history |
 
 `from` and `to` are epoch milliseconds. Without them, the last hour is used.
 
@@ -53,15 +78,17 @@ The code follows hexagonal architecture (ports and adapters). The core does not 
 cmd/vindice/                composition root: builds adapters, injects them into the core
 internal/core/
   domain/                   entities and query objects: LogRow, SpanRow, Series, LogQuery, TraceQuery, ...
-  port/                     inbound (Ingestor, BatchWriter, Querier) and outbound (Publisher, *Repository, TelemetryReader)
-  service/                  IngestService, WriterService, QueryService
+  port/                     inbound (Ingestor, BatchWriter, Querier, MetricsQuerier, DashboardManager, AlertManager)
+                            outbound (Publisher, *Repository, TelemetryReader, Notifier)
+  service/                  IngestService, WriterService, QueryService, DashboardService, AlertService
   policy/                   drop rules, sampling, attribute promotion, dedupe
 internal/adapter/
   in/otlphttp, in/otlpgrpc  OTLP receivers → port.Ingestor
   in/kafkaconsumer          Kafka → port.BatchWriter (commits offsets after each flush)
   in/httpapi                REST API → port.Querier, serves the UI
   out/kafkapublisher        port.Publisher
-  out/clickhouse            write repositories, TelemetryReader, schema migration
+  out/clickhouse            write repositories, TelemetryReader, dashboard/alert stores, schema migration
+  out/telegram              port.Notifier on the Telegram Bot API (LogNotifier when no token)
   otlpmap/                  OTLP protobuf → domain
 web/                        Vue UI, embedded into the binary
 ```
@@ -77,6 +104,8 @@ Reads and writes go through separate ports (CQRS). This lets the read side use r
 | Mapper | `otlpmap` translates OTLP into domain entities, and `httpapi` turns domain entities into DTOs |
 | Query Object | `domain.LogQuery` and `domain.TraceQuery` carry search criteria |
 | Builder | `clickhouse.where` assembles WHERE clauses with bound arguments |
+| State machine | `service.transition` moves an alert through ok → pending → firing → ok |
+| Null Object | `telegram.LogNotifier` is used when no bot token is set |
 | Dependency Injection | constructors only, wired in `cmd/vindice/main.go` |
 
 ## Optimizations
@@ -122,7 +151,7 @@ All settings come from environment variables. Defaults are in `internal/config/c
 | `VINDICE_RETENTION_*_DAYS` | 3/14/90/7/7/30/365 | debug/info/error logs, traces, metrics raw/1m/1h |
 | `VINDICE_CH_COLD_STORAGE_POLICY` | – | enables the S3/R2 cold tier |
 
-Run modes: `vindice -mode=all|ingest|writer|query`. Each part scales independently. The query API listens on `VINDICE_QUERY_ADDR` (default `:8080`).
+Run modes: `vindice -mode=all|ingest|writer|query|alert`. Each part scales independently, except `alert`, which must run as a single instance. The query API listens on `VINDICE_QUERY_ADDR` (default `:8080`). Alert settings are `VINDICE_TELEGRAM_BOT_TOKEN`, `VINDICE_TELEGRAM_CHAT_ID`, `VINDICE_ALERT_INTERVAL` (default `30s`) and `VINDICE_PUBLIC_URL`.
 
 ## Tests
 
@@ -137,3 +166,4 @@ VINDICE_IT_CH_ADDR=localhost:9000 \
 - **Tail sampling needs one writer.** It holds traces in memory, so for now only one writer should run. Running several writers needs Kafka partitioning by trace ID.
 - **Crash loss window.** Traces still waiting for a sampling decision (at most `VINDICE_SAMPLE_WAIT`) are lost if the writer crashes.
 - **Exponential histograms are skipped.** Every other OTLP metric type is stored.
+- **No authentication yet.** The UI and API have no login, and since phase 3 the API can also change dashboards and alerts. Keep port 8080 behind a VPN or a reverse proxy that does authentication.

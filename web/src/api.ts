@@ -115,19 +115,126 @@ export interface TraceFilter {
   errors?: boolean
 }
 
+export interface REDPoint extends Latency {
+  t: number
+  requests: number
+  errors: number
+  error_rate: number
+}
+
+export interface MetricName {
+  name: string
+  type: string
+  unit?: string
+}
+
+export type Agg = 'avg' | 'sum' | 'min' | 'max' | 'count' | 'last' | 'rate'
+
+export interface MetricQuery {
+  name: string
+  service?: string
+  filters?: Record<string, string>
+  agg: Agg
+  group_by?: string
+}
+
+export interface MetricResult {
+  step_ms: number
+  truncated: boolean
+  series: { group: string; points: [number, number | null][] }[]
+}
+
+export type SignalKind = 'metric' | 'red' | 'logs'
+export type Measure = 'requests' | 'errors' | 'error_rate' | 'p50' | 'p95' | 'p99'
+
+export interface SignalQuery {
+  kind: SignalKind
+  metric?: MetricQuery
+  service?: string
+  measure?: Measure
+  min_severity?: number
+  text?: string
+}
+
+export interface Panel {
+  id?: string
+  title: string
+  signal: SignalQuery
+  width: number
+}
+
+export interface Dashboard {
+  id?: string
+  title: string
+  panels: Panel[]
+  updated_at?: string
+}
+
+export type Op = '>' | '>=' | '<' | '<='
+
+export interface AlertStatus {
+  state: 'ok' | 'pending' | 'firing'
+  since: string
+  value: number
+  eval_at: string
+  error?: string
+  breaching?: string[]
+}
+
+export interface AlertRule {
+  id?: string
+  name: string
+  enabled: boolean
+  signal: SignalQuery
+  window_sec: number
+  op: Op
+  threshold: number
+  for_sec: number
+  chat_id?: string
+  updated_at?: string
+  status?: AlertStatus
+}
+
+export interface AlertEvent {
+  rule_id: string
+  rule_name: string
+  time: string
+  state: string
+  value: number
+  message?: string
+}
+
 export class ApiError extends Error {}
 
-type Params = Record<string, string | number | boolean | undefined>
+type Params = Record<string, string | number | boolean | string[] | undefined>
 
-async function get<T>(path: string, params: Params = {}): Promise<T> {
+async function request<T>(method: string, path: string, params: Params = {}, body?: unknown): Promise<T> {
   const qs = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== '' && v !== false) qs.set(k, String(v))
+    if (Array.isArray(v)) v.forEach((x) => qs.append(k, x))
+    else if (v !== undefined && v !== '' && v !== false) qs.set(k, String(v))
   }
-  const res = await fetch(`/api/v1${path}${qs.size ? `?${qs}` : ''}`)
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new ApiError(body.error ?? `${res.status} ${res.statusText}`)
-  return body as T
+  const res = await fetch(`/api/v1${path}${qs.size ? `?${qs}` : ''}`, {
+    method,
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (res.status === 204) return undefined as T
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new ApiError(data.error ?? `${res.status} ${res.statusText}`)
+  return data as T
+}
+
+const get = <T>(path: string, params: Params = {}) => request<T>('GET', path, params)
+
+function metricParams(q: MetricQuery): Params {
+  return {
+    name: q.name,
+    service: q.service,
+    agg: q.agg,
+    group_by: q.group_by,
+    filter: Object.entries(q.filters ?? {}).map(([k, v]) => `${k}:${v}`),
+  }
 }
 
 export const api = {
@@ -139,4 +246,22 @@ export const api = {
   histogram: (r: Range, f: LogFilter) => get<Histogram>('/logs/histogram', { ...r, ...f }),
   traces: (r: Range, f: TraceFilter) => get<TraceSummary[]>('/traces', { ...r, ...f }),
   trace: (id: string) => get<Trace>(`/traces/${id}`),
+
+  serviceSeries: (service: string, r: Range) =>
+    get<{ step_ms: number; points: REDPoint[] }>(`/services/${encodeURIComponent(service)}/series`, { ...r }),
+  metricNames: (r: Range, service?: string) => get<MetricName[]>('/metrics', { ...r, service }),
+  queryMetric: (q: MetricQuery, r: Range) => get<MetricResult>('/metrics/query', { ...r, ...metricParams(q) }),
+
+  dashboards: () => get<Dashboard[]>('/dashboards'),
+  dashboard: (id: string) => get<Dashboard>(`/dashboards/${id}`),
+  saveDashboard: (d: Dashboard) =>
+    d.id ? request<Dashboard>('PUT', `/dashboards/${d.id}`, {}, d) : request<Dashboard>('POST', '/dashboards', {}, d),
+  deleteDashboard: (id: string) => request<void>('DELETE', `/dashboards/${id}`),
+
+  alerts: () => get<AlertRule[]>('/alerts'),
+  saveAlert: (r: AlertRule) =>
+    r.id ? request<AlertRule>('PUT', `/alerts/${r.id}`, {}, r) : request<AlertRule>('POST', '/alerts', {}, r),
+  deleteAlert: (id: string) => request<void>('DELETE', `/alerts/${id}`),
+  testAlert: (id: string) => request<void>('POST', `/alerts/${id}/test`),
+  alertEvents: (limit = 50) => get<AlertEvent[]>('/alerts/events', { limit }),
 }

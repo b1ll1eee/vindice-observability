@@ -63,6 +63,11 @@ services:
       VINDICE_CH_USER: vindice
       VINDICE_CH_PASSWORD: vindice
       VINDICE_RULES_FILE: /etc/vindice/rules.json
+      # Alerts: set these in deploy/.env (never commit the token).
+      VINDICE_TELEGRAM_BOT_TOKEN: ${VINDICE_TELEGRAM_BOT_TOKEN:-}
+      VINDICE_TELEGRAM_CHAT_ID: ${VINDICE_TELEGRAM_CHAT_ID:-}
+      VINDICE_TELEGRAM_API: ${VINDICE_TELEGRAM_API:-https://api.telegram.org}
+      VINDICE_PUBLIC_URL: ${VINDICE_PUBLIC_URL:-http://localhost:8080}
     volumes:
       - ../examples/rules.json:/etc/vindice/rules.json:ro
     ports:

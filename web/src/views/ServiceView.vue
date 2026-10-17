@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { toRef } from 'vue'
-import { api } from '../api'
+import { computed, toRef } from 'vue'
+import { api, type Measure, type SignalQuery } from '../api'
+import SignalPanel from '../components/SignalPanel.vue'
 import { count, duration, percent, serviceColor } from '../format'
 import { useLoader } from '../load'
 import { useTimeRange } from '../range'
@@ -9,6 +10,13 @@ const props = defineProps<{ name: string }>()
 const name = toRef(props, 'name')
 const { key, range } = useTimeRange()
 const { data, error, loading } = useLoader(() => api.operations(name.value, range.value), [name, range])
+
+// Stable objects, so the charts reload only when the service changes.
+const charts = computed(() =>
+  ([['Requests / min', 'requests'], ['Error rate', 'error_rate'], ['Latency p95', 'p95']] as [string, Measure][]).map(
+    ([title, measure]) => ({ title, signal: { kind: 'red', service: name.value, measure } as SignalQuery }),
+  ),
+)
 </script>
 
 <template>
@@ -17,6 +25,9 @@ const { data, error, loading } = useLoader(() => api.operations(name.value, rang
     <RouterLink :to="{ path: '/logs', query: { range: key, service: name } }">View logs →</RouterLink>
     <RouterLink :to="{ path: '/traces', query: { range: key, service: name } }">View traces →</RouterLink>
     <RouterLink :to="{ path: '/traces', query: { range: key, service: name, errors: 'true' } }">View failing traces →</RouterLink>
+  </div>
+  <div class="charts">
+    <SignalPanel v-for="c in charts" :key="c.title" :title="c.title" :signal="c.signal" />
   </div>
   <div v-if="error" class="error-box">{{ error }}</div>
   <h2>Operations</h2>
@@ -46,3 +57,7 @@ const { data, error, loading } = useLoader(() => api.operations(name.value, rang
     </table>
   </div>
 </template>
+
+<style scoped>
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+</style>

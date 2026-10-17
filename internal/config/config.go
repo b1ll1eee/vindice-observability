@@ -29,6 +29,13 @@ type Config struct {
 	OTLPHTTPAddr    string
 	MaxRequestBytes int64
 	QueryAddr       string
+	// PublicURL is where users reach the UI; alert messages link to it.
+	PublicURL string
+
+	AlertInterval  time.Duration
+	TelegramToken  string
+	TelegramChatID string
+	TelegramAPI    string
 
 	BatchRows     int
 	FlushInterval time.Duration
@@ -74,6 +81,12 @@ func Load() (Config, error) {
 		OTLPHTTPAddr:    e.str("VINDICE_OTLP_HTTP_ADDR", ":4318"),
 		MaxRequestBytes: int64(e.int("VINDICE_MAX_REQUEST_BYTES", 16<<20)),
 		QueryAddr:       e.str("VINDICE_QUERY_ADDR", ":8080"),
+		PublicURL:       e.str("VINDICE_PUBLIC_URL", "http://localhost:8080"),
+
+		AlertInterval:  e.dur("VINDICE_ALERT_INTERVAL", 30*time.Second),
+		TelegramToken:  e.str("VINDICE_TELEGRAM_BOT_TOKEN", ""),
+		TelegramChatID: e.str("VINDICE_TELEGRAM_CHAT_ID", ""),
+		TelegramAPI:    e.str("VINDICE_TELEGRAM_API", "https://api.telegram.org"),
 
 		BatchRows:     e.int("VINDICE_BATCH_ROWS", 50_000),
 		FlushInterval: e.dur("VINDICE_FLUSH_INTERVAL", 3*time.Second),

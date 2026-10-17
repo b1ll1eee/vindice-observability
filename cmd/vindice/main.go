@@ -1,10 +1,11 @@
 // Command vindice runs the Vindice observability backend. It is the
 // composition root: adapters are built here and injected into the core.
 //
-//	vindice -mode=all      ingest + writer + query in one process (default)
+//	vindice -mode=all      everything in one process (default)
 //	vindice -mode=ingest   OTLP receivers -> Kafka
 //	vindice -mode=writer   Kafka -> ClickHouse
 //	vindice -mode=query    REST API and UI over ClickHouse
+//	vindice -mode=alert    alert evaluation and Telegram notifications (run one)
 package main
 
 import (
@@ -29,14 +30,16 @@ import (
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/kafka"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/out/clickhouse"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/out/kafkapublisher"
+	"github.com/b1ll1eee/vindice-obs/internal/adapter/out/telegram"
 	"github.com/b1ll1eee/vindice-obs/internal/config"
 	"github.com/b1ll1eee/vindice-obs/internal/core/policy"
+	"github.com/b1ll1eee/vindice-obs/internal/core/port"
 	"github.com/b1ll1eee/vindice-obs/internal/core/service"
 	"github.com/b1ll1eee/vindice-obs/web"
 )
 
 func main() {
-	mode := flag.String("mode", "all", "all | ingest | writer | query")
+	mode := flag.String("mode", "all", "all | ingest | writer | query | alert")
 	flag.Parse()
 
 	cfg, err := config.Load()
@@ -56,16 +59,18 @@ func main() {
 }
 
 func run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) error {
-	var ingest, writer, query bool
+	var ingest, writer, query, alert bool
 	switch mode {
 	case "all":
-		ingest, writer, query = true, true, true
+		ingest, writer, query, alert = true, true, true, true
 	case "ingest":
 		ingest = true
 	case "writer":
 		writer = true
 	case "query":
 		query = true
+	case "alert":
+		alert = true
 	default:
 		return fmt.Errorf("unknown mode %q", mode)
 	}
@@ -79,9 +84,9 @@ func run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 		}
 	}
 
-	// Writer and query share one ClickHouse connection pool.
+	// Writer, query and alert share one ClickHouse connection pool.
 	var repo *clickhouse.Repository
-	if writer || query {
+	if writer || query || alert {
 		var err error
 		if repo, err = openClickHouse(ctx, cfg, log); err != nil {
 			return err
@@ -100,8 +105,24 @@ func run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 			return err
 		}
 	}
-	if query {
-		startQuery(ctx, g, cfg, repo, log)
+	if query || alert {
+		queries := service.NewQueryService(repo)
+		alerts := service.NewAlertService(service.AlertDeps{
+			Rules: repo, State: repo, Signals: queries, Notifier: notifier(cfg, log),
+			PublicURL: cfg.PublicURL, Log: log,
+		})
+		if query {
+			startQuery(ctx, g, cfg, httpapi.Deps{
+				Querier: queries, Metrics: queries, Dashboards: service.NewDashboardService(repo),
+				Alerts: alerts, UI: web.Handler(), Log: log,
+			}, log)
+		}
+		if alert {
+			g.Go(func() error {
+				log.Info("alert evaluator running", "interval", cfg.AlertInterval)
+				return alerts.Run(ctx, cfg.AlertInterval)
+			})
+		}
 	}
 	return g.Wait()
 }
@@ -218,10 +239,10 @@ func startWriter(ctx context.Context, g *errgroup.Group, cfg config.Config, repo
 	return nil
 }
 
-func startQuery(ctx context.Context, g *errgroup.Group, cfg config.Config, repo *clickhouse.Repository, log *slog.Logger) {
+func startQuery(ctx context.Context, g *errgroup.Group, cfg config.Config, deps httpapi.Deps, log *slog.Logger) {
 	srv := &http.Server{
 		Addr:              cfg.QueryAddr,
-		Handler:           httpapi.New(service.NewQueryService(repo), web.Handler(), log),
+		Handler:           httpapi.New(deps),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	g.Go(func() error {
@@ -237,6 +258,15 @@ func startQuery(ctx context.Context, g *errgroup.Group, cfg config.Config, repo 
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
 	})
+}
+
+// notifier picks Telegram when a bot token is set, else logs alerts.
+func notifier(cfg config.Config, log *slog.Logger) port.Notifier {
+	if cfg.TelegramToken == "" {
+		log.Warn("VINDICE_TELEGRAM_BOT_TOKEN not set: alerts are logged, not sent")
+		return telegram.LogNotifier{Log: log}
+	}
+	return telegram.New(cfg.TelegramAPI, cfg.TelegramToken, cfg.TelegramChatID)
 }
 
 // retry calls fn until it succeeds or ctx ends, so services can start before

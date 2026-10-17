@@ -25,6 +25,32 @@ type Querier interface {
 	Trace(ctx context.Context, id [16]byte) (domain.Trace, error)
 }
 
+// MetricsQuerier answers time-series questions for charts.
+type MetricsQuerier interface {
+	MetricNames(ctx context.Context, service string, r domain.TimeRange) ([]domain.MetricName, error)
+	QueryMetric(ctx context.Context, q domain.MetricQuery, r domain.TimeRange) (domain.MetricResult, error)
+	ServiceSeries(ctx context.Context, service string, r domain.TimeRange) (time.Duration, []domain.REDPoint, error)
+}
+
+type DashboardManager interface {
+	ListDashboards(ctx context.Context) ([]domain.Dashboard, error)
+	GetDashboard(ctx context.Context, id string) (domain.Dashboard, error)
+	// SaveDashboard creates the dashboard when ID is empty, else replaces it.
+	SaveDashboard(ctx context.Context, d domain.Dashboard) (domain.Dashboard, error)
+	DeleteDashboard(ctx context.Context, id string) error
+}
+
+type AlertManager interface {
+	ListRules(ctx context.Context) ([]domain.AlertRule, error)
+	GetRule(ctx context.Context, id string) (domain.AlertRule, error)
+	SaveRule(ctx context.Context, r domain.AlertRule) (domain.AlertRule, error)
+	DeleteRule(ctx context.Context, id string) error
+	Statuses(ctx context.Context) (map[string]domain.AlertStatus, error)
+	Events(ctx context.Context, ruleID string, limit int) ([]domain.AlertEvent, error)
+	// TestRule sends a test notification for the rule.
+	TestRule(ctx context.Context, id string) error
+}
+
 // BatchWriter buffers decoded telemetry and persists it on Flush.
 // It is driven by the queue consumer, which commits offsets only after a
 // successful Flush.

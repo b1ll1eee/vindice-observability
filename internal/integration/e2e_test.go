@@ -182,6 +182,137 @@ func TestEndToEnd(t *testing.T) {
 	}
 
 	testReadSide(ctx, t, service.NewQueryService(repo))
+	testMetricsDashboardsAlerts(ctx, t, repo)
+}
+
+type captureNotifier struct{ sent []domain.Notification }
+
+func (c *captureNotifier) Notify(_ context.Context, n domain.Notification) error {
+	c.sent = append(c.sent, n)
+	return nil
+}
+
+func testMetricsDashboardsAlerts(ctx context.Context, t *testing.T, repo *chrepo.Repository) {
+	q := service.NewQueryService(repo)
+	window := domain.TimeRange{From: time.Now().Add(-10 * time.Minute), To: time.Now().Add(time.Minute)}
+
+	names, err := q.MetricNames(ctx, "orders", window)
+	if err != nil || len(names) != 4 { // up, latency_bucket, latency_sum, latency_count
+		t.Errorf("metric names = %+v, %v", names, err)
+	}
+
+	for _, c := range []struct {
+		q    domain.MetricQuery
+		want float64
+	}{
+		{domain.MetricQuery{Name: "up", Agg: domain.AggAvg}, 1},
+		{domain.MetricQuery{Name: "latency_count", Agg: domain.AggLast}, 6},
+		{domain.MetricQuery{Name: "latency_bucket", Agg: domain.AggMax, Filters: map[string]string{"le": "1"}}, 3},
+	} {
+		res, err := q.QueryMetric(ctx, c.q, window)
+		if err != nil || len(res.Series) != 1 {
+			t.Errorf("metric %s: %+v, %v", c.q.Name, res, err)
+			continue
+		}
+		var got []float64
+		for _, p := range res.Series[0].Points {
+			if p.Valid {
+				got = append(got, p.Value)
+			}
+		}
+		if len(got) != 1 || got[0] != c.want {
+			t.Errorf("metric %s %s: points %v, want one %v", c.q.Agg, c.q.Name, got, c.want)
+		}
+	}
+	grouped, err := q.QueryMetric(ctx, domain.MetricQuery{Name: "latency_bucket", Agg: domain.AggLast, GroupBy: "le"}, window)
+	if err != nil || len(grouped.Series) != 3 {
+		t.Errorf("group by le: %d series, %v", len(grouped.Series), err)
+	}
+
+	_, red, err := q.ServiceSeries(ctx, "orders", window)
+	var reqs, errs uint64
+	for _, p := range red {
+		reqs += p.Requests
+		errs += p.Errors
+	}
+	if err != nil || reqs != 2 || errs != 1 {
+		t.Errorf("service series: %d requests, %d errors, %v", reqs, errs, err)
+	}
+
+	// Dashboards: create, update, delete.
+	dash := service.NewDashboardService(repo)
+	panel := domain.Panel{Title: "errors", Width: 6, Signal: domain.SignalQuery{
+		Kind: domain.SignalKindRED, Service: "orders", Measure: domain.MeasureErrorRate}}
+	d, err := dash.SaveDashboard(ctx, domain.Dashboard{Title: "Orders", Panels: []domain.Panel{panel}})
+	if err != nil || d.ID == "" || d.Panels[0].ID == "" {
+		t.Fatalf("create dashboard: %+v, %v", d, err)
+	}
+	d.Title = "Orders v2"
+	time.Sleep(time.Millisecond) // newer version
+	if _, err := dash.SaveDashboard(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := dash.GetDashboard(ctx, d.ID); err != nil || got.Title != "Orders v2" || len(got.Panels) != 1 {
+		t.Errorf("get dashboard: %+v, %v", got, err)
+	}
+	if err := dash.DeleteDashboard(ctx, d.ID); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := dash.ListDashboards(ctx); len(list) != 0 {
+		t.Errorf("deleted dashboard still listed: %+v", list)
+	}
+	if _, err := dash.GetDashboard(ctx, d.ID); err != domain.ErrNotFound {
+		t.Errorf("deleted dashboard: %v", err)
+	}
+
+	// Alerts: one firing rule per signal kind, evaluated against real data.
+	notif := &captureNotifier{}
+	alerts := service.NewAlertService(service.AlertDeps{
+		Rules: repo, State: repo, Signals: q, Notifier: notif, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	rules := []domain.AlertRule{
+		{Name: "error rate", Signal: domain.SignalQuery{Kind: domain.SignalKindRED, Service: "orders", Measure: domain.MeasureErrorRate},
+			Op: domain.OpGE, Threshold: 0.5},
+		{Name: "error logs", Signal: domain.SignalQuery{Kind: domain.SignalKindLogs, Service: "orders", MinSeverity: 17},
+			Op: domain.OpGE, Threshold: 1},
+		{Name: "down", Signal: domain.SignalQuery{Kind: domain.SignalKindMetric, Metric: &domain.MetricQuery{Name: "up", Agg: domain.AggMin}},
+			Op: domain.OpLT, Threshold: 2},
+		{Name: "quiet", Signal: domain.SignalQuery{Kind: domain.SignalKindRED, Service: "orders", Measure: domain.MeasureRequests},
+			Op: domain.OpGT, Threshold: 1000},
+	}
+	for _, r := range rules {
+		r.Enabled, r.Window = true, 10*time.Minute
+		if _, err := alerts.SaveRule(ctx, r); err != nil {
+			t.Fatalf("save rule %s: %v", r.Name, err)
+		}
+	}
+	if err := alerts.Evaluate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	fired := map[string]float64{}
+	for _, n := range notif.sent {
+		fired[n.Rule.Name] = n.Value
+	}
+	if len(fired) != 3 || fired["error rate"] != 0.5 || fired["error logs"] != 1 || fired["down"] != 1 {
+		t.Errorf("fired = %v", fired)
+	}
+
+	statuses, err := repo.LoadStatuses(ctx)
+	if err != nil || len(statuses) != 4 {
+		t.Errorf("persisted statuses: %d, %v", len(statuses), err)
+	}
+	events, err := alerts.Events(ctx, "", 10)
+	if err != nil || len(events) != 3 || events[0].State != domain.EventFiring {
+		t.Errorf("events = %+v, %v", events, err)
+	}
+
+	// A second round must not notify again.
+	if err := alerts.Evaluate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(notif.sent) != 3 {
+		t.Errorf("re-notified: %d notifications", len(notif.sent))
+	}
 }
 
 // testReadSide runs every query through the real ClickHouse reader.
