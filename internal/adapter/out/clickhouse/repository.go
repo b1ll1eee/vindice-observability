@@ -11,8 +11,8 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
-	"github.com/b1ll1eee/vindice-obs/internal/core/port"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/port"
 )
 
 type Retention struct {

@@ -16,7 +16,7 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 // Minimal encoder for prometheus.WriteRequest, mirroring the decoder.

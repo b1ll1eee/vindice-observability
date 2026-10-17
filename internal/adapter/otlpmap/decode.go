@@ -9,7 +9,7 @@ import (
 	coltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 // Decode unmarshals an OTLP protobuf export request and maps it to a batch.

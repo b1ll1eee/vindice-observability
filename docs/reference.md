@@ -157,7 +157,7 @@ internal/adapter/
   out/authcrypto            bcrypt PasswordHasher, HMAC SessionCodec
   otlpmap/                  OTLP protobuf → domain
 web/                        Vue UI, embedded into the binary
-sdk/                        Go SDK (separate module: github.com/b1ll1eee/vindice-obs/sdk)
+sdk/                        Go SDK (separate module: github.com/b1ll1eee/vindice-observability/sdk)
 ```
 
 Reads and writes go through separate ports (CQRS). This lets the read side use rollups and the query cache without touching the write path.

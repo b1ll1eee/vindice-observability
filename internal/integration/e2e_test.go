@@ -33,16 +33,16 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/httpapi"
-	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/kafkaconsumer"
-	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/otlphttp"
-	"github.com/b1ll1eee/vindice-obs/internal/adapter/kafka"
-	"github.com/b1ll1eee/vindice-obs/internal/adapter/out/authcrypto"
-	chrepo "github.com/b1ll1eee/vindice-obs/internal/adapter/out/clickhouse"
-	"github.com/b1ll1eee/vindice-obs/internal/adapter/out/kafkapublisher"
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
-	"github.com/b1ll1eee/vindice-obs/internal/core/policy"
-	"github.com/b1ll1eee/vindice-obs/internal/core/service"
+	"github.com/b1ll1eee/vindice-observability/internal/adapter/in/httpapi"
+	"github.com/b1ll1eee/vindice-observability/internal/adapter/in/kafkaconsumer"
+	"github.com/b1ll1eee/vindice-observability/internal/adapter/in/otlphttp"
+	"github.com/b1ll1eee/vindice-observability/internal/adapter/kafka"
+	"github.com/b1ll1eee/vindice-observability/internal/adapter/out/authcrypto"
+	chrepo "github.com/b1ll1eee/vindice-observability/internal/adapter/out/clickhouse"
+	"github.com/b1ll1eee/vindice-observability/internal/adapter/out/kafkapublisher"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/policy"
+	"github.com/b1ll1eee/vindice-observability/internal/core/service"
 )
 
 func TestEndToEnd(t *testing.T) {

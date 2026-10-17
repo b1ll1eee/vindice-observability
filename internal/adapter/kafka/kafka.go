@@ -14,7 +14,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 // MaxMessageBytes must stay at or below the broker's message.max.bytes.

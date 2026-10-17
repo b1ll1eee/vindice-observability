@@ -6,7 +6,7 @@ import (
 	coltrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 func MapTraces(req *coltrace.ExportTraceServiceRequest) ([]domain.SpanRow, []domain.Resource) {

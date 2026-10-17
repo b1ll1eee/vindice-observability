@@ -5,7 +5,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 // Sampler decides which spans are stored (Strategy pattern).

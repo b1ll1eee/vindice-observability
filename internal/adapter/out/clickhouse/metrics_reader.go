@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 func (r *Repository) MetricNames(ctx context.Context, service string, tr domain.TimeRange) ([]domain.MetricName, error) {

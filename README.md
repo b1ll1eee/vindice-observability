@@ -71,7 +71,7 @@ You don't have to choose up front. Send the same data to both from an OpenTeleme
 You need Docker with Compose, and `make`.
 
 ```bash
-git clone https://github.com/b1ll1eee/vindice-obs && cd vindice-obs
+git clone https://github.com/b1ll1eee/vindice-observability && cd vindice-observability
 make up                                                # start Kafka, ClickHouse and vindice
 docker logs vindice-vindice-1 2>&1 | grep "first admin"  # one-time admin password
 open http://localhost:8080                             # sign in, then create a key under API keys

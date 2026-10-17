@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 const sessionCookie = "vindice_session"

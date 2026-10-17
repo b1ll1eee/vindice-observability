@@ -1,4 +1,4 @@
-module github.com/b1ll1eee/vindice-obs
+module github.com/b1ll1eee/vindice-observability
 
 go 1.27.1
 

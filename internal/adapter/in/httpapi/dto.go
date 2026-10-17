@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 // JSON shapes for the UI. Times are RFC 3339 strings or epoch milliseconds;

@@ -7,7 +7,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 // Ingestor accepts raw OTLP protobuf export requests (from HTTP and gRPC).

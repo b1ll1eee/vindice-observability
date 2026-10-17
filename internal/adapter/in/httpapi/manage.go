@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 const maxBodyBytes = 1 << 20

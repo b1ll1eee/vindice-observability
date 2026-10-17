@@ -1,4 +1,4 @@
-module github.com/b1ll1eee/vindice-obs/sdk
+module github.com/b1ll1eee/vindice-observability/sdk
 
 go 1.26.0
 

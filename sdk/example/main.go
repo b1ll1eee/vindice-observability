@@ -15,7 +15,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 
-	vindice "github.com/b1ll1eee/vindice-obs/sdk"
+	vindice "github.com/b1ll1eee/vindice-observability/sdk"
 )
 
 func main() {

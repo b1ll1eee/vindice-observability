@@ -16,8 +16,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
-	"github.com/b1ll1eee/vindice-obs/internal/core/port"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/port"
 )
 
 // NewServer returns the OTLP/gRPC receiver. auth checks the API key of every

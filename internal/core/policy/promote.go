@@ -3,7 +3,7 @@ package policy
 import (
 	"strconv"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 // PromoteSpanAttributes moves frequently queried HTTP attributes out of the

@@ -11,9 +11,9 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kgo"
 
-	"github.com/b1ll1eee/vindice-obs/internal/adapter/kafka"
-	"github.com/b1ll1eee/vindice-obs/internal/adapter/otlpmap"
-	"github.com/b1ll1eee/vindice-obs/internal/core/port"
+	"github.com/b1ll1eee/vindice-observability/internal/adapter/kafka"
+	"github.com/b1ll1eee/vindice-observability/internal/adapter/otlpmap"
+	"github.com/b1ll1eee/vindice-observability/internal/core/port"
 )
 
 type Config struct {

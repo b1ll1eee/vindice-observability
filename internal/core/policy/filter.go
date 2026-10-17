@@ -9,7 +9,7 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 // Spec is a predicate over a row (Specification pattern). Rules are built by

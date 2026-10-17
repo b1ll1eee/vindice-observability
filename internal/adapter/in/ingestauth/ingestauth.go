@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
-	"github.com/b1ll1eee/vindice-obs/internal/core/port"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/port"
 )
 
 // Middleware rejects requests without a valid key: 401 for a bad key, 503

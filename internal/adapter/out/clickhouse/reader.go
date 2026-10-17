@@ -9,8 +9,8 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
-	"github.com/b1ll1eee/vindice-obs/internal/core/port"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/port"
 )
 
 var _ port.TelemetryReader = (*Repository)(nil)

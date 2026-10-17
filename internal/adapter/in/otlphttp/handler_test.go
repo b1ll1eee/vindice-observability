@@ -15,8 +15,8 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/ingestauth"
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/adapter/in/ingestauth"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 type fakeIngestor struct {

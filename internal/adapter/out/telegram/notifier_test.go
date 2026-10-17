@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 const token = "123456:SECRET-token"

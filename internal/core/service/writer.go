@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
-	"github.com/b1ll1eee/vindice-obs/internal/core/policy"
-	"github.com/b1ll1eee/vindice-obs/internal/core/port"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/policy"
+	"github.com/b1ll1eee/vindice-observability/internal/core/port"
 )
 
 // WriterService runs decoded telemetry through the policies (drop rules,

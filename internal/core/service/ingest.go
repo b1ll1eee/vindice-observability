@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
-	"github.com/b1ll1eee/vindice-obs/internal/core/port"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/port"
 )
 
 // IngestService hands validated payloads to the queue. It stays thin on

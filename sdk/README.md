@@ -3,11 +3,11 @@
 Connect a Go service to [Vindice](../README.md) in one call. It sends traces, metrics and logs over OTLP/HTTP and authenticates with an ingest API key.
 
 ```bash
-go get github.com/b1ll1eee/vindice-obs/sdk
+go get github.com/b1ll1eee/vindice-observability/sdk
 ```
 
 ```go
-import vindice "github.com/b1ll1eee/vindice-obs/sdk"
+import vindice "github.com/b1ll1eee/vindice-observability/sdk"
 
 func main() {
 	sdk, err := vindice.Start(context.Background(), vindice.Config{

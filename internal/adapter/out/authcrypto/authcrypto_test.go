@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 func TestBcrypt(t *testing.T) {

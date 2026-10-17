@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 func bucket(id uint64, t time.Time, last float64) domain.MetricBucket {

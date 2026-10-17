@@ -5,7 +5,7 @@ import (
 
 	collogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
 )
 
 // MapLogs flattens an export request. now is used when a record has no timestamp.

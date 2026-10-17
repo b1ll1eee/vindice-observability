@@ -4,8 +4,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
-	"github.com/b1ll1eee/vindice-obs/internal/core/port"
+	"github.com/b1ll1eee/vindice-observability/internal/core/domain"
+	"github.com/b1ll1eee/vindice-observability/internal/core/port"
 )
 
 // LogNotifier stands in when no bot token is configured (Null Object): alerts
