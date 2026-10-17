@@ -28,6 +28,44 @@ type Consumer struct {
 	writer port.BatchWriter
 	cfg    Config
 	log    *slog.Logger
+
+	// rowsPerRecord is a running estimate of rows per Kafka record. One
+	// record carries a whole OTLP request, so BatchRows (rows) cannot be used
+	// as a record count; polls are sized from this estimate instead.
+	rowsPerRecord float64
+}
+
+// fetchMaxBytes bounds what the Kafka client buffers per fetch. Kafka still
+// returns a record larger than this on its own, so big requests get through.
+const fetchMaxBytes = 16 << 20
+
+// pollLimit is how many records to take so the buffer reaches about
+// BatchRows rows. Until there is an estimate it takes one record to learn.
+func (c *Consumer) pollLimit() int {
+	if c.rowsPerRecord <= 0 {
+		return 1
+	}
+	room := c.cfg.BatchRows - c.writer.Buffered()
+	if room <= 0 {
+		// Rows held back (traces awaiting a sampling decision) can fill the
+		// buffer on their own. A flush follows every such poll, so take one
+		// batch's worth rather than stalling at a record at a time.
+		room = c.cfg.BatchRows
+	}
+	return max(1, min(c.cfg.BatchRows, int(float64(room)/c.rowsPerRecord)))
+}
+
+// observe updates the rows-per-record estimate from one poll.
+func (c *Consumer) observe(records, rows int) {
+	if records == 0 {
+		return
+	}
+	got := float64(max(rows, 0)) / float64(records)
+	if c.rowsPerRecord <= 0 {
+		c.rowsPerRecord = max(got, 1)
+		return
+	}
+	c.rowsPerRecord = max(0.7*c.rowsPerRecord+0.3*got, 1)
 }
 
 func New(cfg Config, writer port.BatchWriter, log *slog.Logger) (*Consumer, error) {
@@ -39,8 +77,8 @@ func New(cfg Config, writer port.BatchWriter, log *slog.Logger) (*Consumer, erro
 		kgo.ConsumeTopics(kafka.Topics()...),
 		kgo.DisableAutoCommit(),
 		kgo.BlockRebalanceOnPoll(),
-		kgo.FetchMaxBytes(64<<20),
-		kgo.FetchMaxPartitionBytes(kafka.MaxMessageBytes),
+		kgo.FetchMaxBytes(fetchMaxBytes),
+		kgo.FetchMaxPartitionBytes(fetchMaxBytes),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 	)
 	if err != nil {
@@ -56,7 +94,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 	for {
 		wait := max(c.cfg.FlushInterval-time.Since(lastFlush), 10*time.Millisecond)
 		pollCtx, cancel := context.WithTimeout(ctx, wait)
-		fetches := c.cl.PollRecords(pollCtx, c.cfg.BatchRows)
+		fetches := c.cl.PollRecords(pollCtx, c.pollLimit())
 		cancel()
 		if fetches.IsClientClosed() {
 			return nil
@@ -66,7 +104,11 @@ func (c *Consumer) Run(ctx context.Context) error {
 				c.log.Warn("kafka fetch error", "topic", topic, "partition", p, "err", err)
 			}
 		})
+		before := c.writer.Buffered()
 		fetches.EachRecord(c.handle)
+		// Rows can also leave the buffer (dropped by rules), so this is an
+		// estimate of rows added, which is what sizing the next poll needs.
+		c.observe(fetches.NumRecords(), c.writer.Buffered()-before)
 
 		if ctx.Err() != nil {
 			// Shutdown: decide pending traces, write everything, commit.

@@ -148,3 +148,32 @@ func TestWriterAppliesPolicies(t *testing.T) {
 		t.Errorf("dropped series and its samples should be gone: series=%d samples=%d", repo.series, repo.samples)
 	}
 }
+
+// Flushing must let go of the rows it wrote: an emptied slice that still
+// points at millions of old rows keeps their strings and maps alive.
+func TestFlushReleasesWrittenRows(t *testing.T) {
+	w := newWriter(t, &fakeRepo{}, nil, 1)
+
+	small := domain.Batch{Logs: make([]domain.LogRow, 100)}
+	for i := range small.Logs {
+		small.Logs[i] = domain.LogRow{Body: "small", Attributes: map[string]string{"k": "v"}}
+	}
+	w.Add(small, time.Now())
+	if err := w.Flush(context.Background(), time.Now(), false); err != nil {
+		t.Fatal(err)
+	}
+	for i, r := range w.buf.Logs[:cap(w.buf.Logs)] {
+		if r.Body != "" || r.Attributes != nil {
+			t.Fatalf("row %d still referenced after flush: %+v", i, r)
+		}
+	}
+
+	big := domain.Batch{Logs: make([]domain.LogRow, 500_000)}
+	w.Add(big, time.Now())
+	if err := w.Flush(context.Background(), time.Now(), false); err != nil {
+		t.Fatal(err)
+	}
+	if c := cap(w.buf.Logs); c > maxRetainedRows {
+		t.Errorf("flush kept a buffer for %d rows; want at most %d", c, maxRetainedRows)
+	}
+}

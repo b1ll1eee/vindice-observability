@@ -72,6 +72,8 @@ services:
       VINDICE_ADMIN_USERNAME: ${VINDICE_ADMIN_USERNAME:-admin}
       VINDICE_ADMIN_PASSWORD: ${VINDICE_ADMIN_PASSWORD:-}
       VINDICE_SESSION_SECRET: ${VINDICE_SESSION_SECRET:-}
+      # Keep the Go heap under the container limit (mem_limit below), with headroom.
+      GOMEMLIMIT: 400MiB
     volumes:
       - ../examples/rules.json:/etc/vindice/rules.json:ro
     ports:

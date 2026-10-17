@@ -123,6 +123,10 @@ func (w *WriterService) Flush(ctx context.Context, now time.Time, final bool) er
 	return nil
 }
 
+// maxRetainedRows caps the buffer kept between flushes. A larger buffer only
+// appears after an unusual burst; keeping it would pin its memory for good.
+const maxRetainedRows = 1 << 17
+
 func saveAndClear[T any](ctx context.Context, rows *[]T, save func(context.Context, []T) error) error {
 	if len(*rows) == 0 {
 		return nil
@@ -130,6 +134,13 @@ func saveAndClear[T any](ctx context.Context, rows *[]T, save func(context.Conte
 	if err := save(ctx, *rows); err != nil {
 		return err
 	}
-	*rows = (*rows)[:0]
+	// Zero the written rows so their strings and maps can be collected;
+	// re-slicing alone would keep every one of them reachable.
+	clear(*rows)
+	if cap(*rows) > maxRetainedRows {
+		*rows = nil
+	} else {
+		*rows = (*rows)[:0]
+	}
 	return nil
 }

@@ -242,6 +242,7 @@ All settings are environment variables; defaults live in `internal/config/config
 | **Writer** | | |
 | `VINDICE_BATCH_ROWS` | `50000` | flush when this many rows are buffered |
 | `VINDICE_FLUSH_INTERVAL` | `3s` | flush at least this often |
+| `GOMEMLIMIT` | `400MiB` in `deploy/` | Go runtime soft memory limit; keep it about 80% of the container limit |
 | `VINDICE_RULES_FILE` | – | JSON drop rules, e.g. `examples/rules.json` |
 | `VINDICE_SAMPLE_RATE` | `0.1` | share of normal traces kept; `1` keeps everything |
 | `VINDICE_SAMPLE_SLOW` | `1s` | traces with a span at least this slow are always kept |
