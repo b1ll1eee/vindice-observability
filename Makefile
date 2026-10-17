@@ -3,10 +3,18 @@ TELEMETRYGEN := ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetry
 GEN          := docker run --rm --network vindice_default $(TELEMETRYGEN)
 CH           := $(COMPOSE) exec -T clickhouse clickhouse-client --user vindice --password vindice -d vindice
 
-.PHONY: build test lint up down logs demo stats
+.PHONY: build web web-dev test lint up down logs demo stats
 
-build:
+build: web
 	go build -o bin/vindice ./cmd/vindice
+
+# Build the UI into web/dist, which the binary embeds.
+web:
+	cd web && npm ci --no-audit --no-fund && npm run build
+
+# UI with hot reload on :5173, proxying /api to a vindice on :8080.
+web-dev:
+	cd web && npm run dev
 
 test:
 	go test -race ./...

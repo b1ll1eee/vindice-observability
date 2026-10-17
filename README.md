@@ -2,12 +2,14 @@
 
 Lightweight, self-hosted observability for logs, traces and metrics. Data comes in over OpenTelemetry (OTLP), is buffered in Kafka, and is stored in ClickHouse.
 
-> **Status:** phase 1 is done: ingest, buffering and storage. The query API, UI, dashboards and alerting are next.
+> **Status:** phases 1 and 2 are done: ingest, storage, the query API and a UI for services, log search and traces. Dashboards and alerting are next.
 
 ```
 app (OTel SDK) ──OTLP──▶ ingest ──zstd──▶ Kafka ──▶ writer ──batch──▶ ClickHouse
-                gRPC :4317                         drop rules · tail sampling
-                HTTP :4318                         RED stats · dedupe · rollups
+                gRPC :4317                         drop rules · tail sampling      │
+                HTTP :4318                         RED stats · dedupe · rollups    │
+                                                                                   ▼
+                                         browser ◀── UI + REST API :8080 ◀── query
 ```
 
 ## Quick start
@@ -16,9 +18,32 @@ app (OTel SDK) ──OTLP──▶ ingest ──zstd──▶ Kafka ──▶ wr
 make up      # Kafka + ClickHouse + vindice (docker compose)
 make demo    # send sample traces, logs and metrics
 make stats   # rows and on-disk size per table
+open http://localhost:8080
 ```
 
 Point any OpenTelemetry SDK or Collector at `localhost:4317` (gRPC) or `http://localhost:4318` (HTTP).
+
+## UI
+
+- **Services.** Request rate, error rate and p50/p95/p99 per service, plus log and error-log counts. Click a service to see the same figures per operation.
+- **Logs.** Full-text search, filters for service and severity, a histogram coloured by level, and paging. Each log links to its trace.
+- **Traces.** Filters for service, minimum duration and errors only.
+- **Trace view.** A waterfall with span details, events and attributes. The logs emitted inside the trace appear on the same page, and can be narrowed to the selected span.
+
+The UI is Vue 3 + TypeScript with no UI or chart library. It is built into `web/dist` and embedded into the Go binary, so a deployment is still one binary. For development, run `make web-dev` (hot reload on :5173, which proxies `/api` to :8080).
+
+### API
+
+| Endpoint | |
+|---|---|
+| `GET /api/v1/services` | RED and log counts per service |
+| `GET /api/v1/services/{service}/operations` | RED per operation |
+| `GET /api/v1/logs` | search: `service`, `severity`, `q`, `trace_id`, `before` (cursor), `limit` |
+| `GET /api/v1/logs/histogram` | log counts per level, with the same filters |
+| `GET /api/v1/traces` | root spans: `service`, `min_duration_ms`, `errors`, `limit` |
+| `GET /api/v1/traces/{id}` | spans, logs and resources of one trace |
+
+`from` and `to` are epoch milliseconds. Without them, the last hour is used.
 
 ## Architecture
 
@@ -27,17 +52,21 @@ The code follows hexagonal architecture (ports and adapters). The core does not 
 ```
 cmd/vindice/                composition root: builds adapters, injects them into the core
 internal/core/
-  domain/                   entities: LogRow, SpanRow, Series, Sample, Resource, Batch
-  port/                     inbound (Ingestor, BatchWriter) and outbound (Publisher, *Repository) interfaces
-  service/                  IngestService, WriterService
+  domain/                   entities and query objects: LogRow, SpanRow, Series, LogQuery, TraceQuery, ...
+  port/                     inbound (Ingestor, BatchWriter, Querier) and outbound (Publisher, *Repository, TelemetryReader)
+  service/                  IngestService, WriterService, QueryService
   policy/                   drop rules, sampling, attribute promotion, dedupe
 internal/adapter/
   in/otlphttp, in/otlpgrpc  OTLP receivers → port.Ingestor
   in/kafkaconsumer          Kafka → port.BatchWriter (commits offsets after each flush)
+  in/httpapi                REST API → port.Querier, serves the UI
   out/kafkapublisher        port.Publisher
-  out/clickhouse            repositories + schema migration
+  out/clickhouse            write repositories, TelemetryReader, schema migration
   otlpmap/                  OTLP protobuf → domain
+web/                        Vue UI, embedded into the binary
 ```
+
+Reads and writes go through separate ports (CQRS). This lets the read side use rollups and the query cache without touching the write path.
 
 | Pattern | Where |
 |---|---|
@@ -45,7 +74,9 @@ internal/adapter/
 | Repository | `out/clickhouse` implements the `port.*Repository` interfaces, one per aggregate |
 | Strategy + Factory | `policy.Sampler`: `NewSampler` picks keep-all or tail sampling |
 | Specification | `policy.Filter`: each drop rule combines small `Spec`s with `allOf`/`anyOf` |
-| Mapper | `otlpmap` translates OTLP into domain entities |
+| Mapper | `otlpmap` translates OTLP into domain entities, and `httpapi` turns domain entities into DTOs |
+| Query Object | `domain.LogQuery` and `domain.TraceQuery` carry search criteria |
+| Builder | `clickhouse.where` assembles WHERE clauses with bound arguments |
 | Dependency Injection | constructors only, wired in `cmd/vindice/main.go` |
 
 ## Optimizations
@@ -91,7 +122,7 @@ All settings come from environment variables. Defaults are in `internal/config/c
 | `VINDICE_RETENTION_*_DAYS` | 3/14/90/7/7/30/365 | debug/info/error logs, traces, metrics raw/1m/1h |
 | `VINDICE_CH_COLD_STORAGE_POLICY` | – | enables the S3/R2 cold tier |
 
-Run modes: `vindice -mode=all|ingest|writer`. Ingest and writer scale independently.
+Run modes: `vindice -mode=all|ingest|writer|query`. Each part scales independently. The query API listens on `VINDICE_QUERY_ADDR` (default `:8080`).
 
 ## Tests
 

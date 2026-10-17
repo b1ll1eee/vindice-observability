@@ -28,6 +28,7 @@ type Config struct {
 	OTLPGRPCAddr    string
 	OTLPHTTPAddr    string
 	MaxRequestBytes int64
+	QueryAddr       string
 
 	BatchRows     int
 	FlushInterval time.Duration
@@ -72,6 +73,7 @@ func Load() (Config, error) {
 		OTLPGRPCAddr:    e.str("VINDICE_OTLP_GRPC_ADDR", ":4317"),
 		OTLPHTTPAddr:    e.str("VINDICE_OTLP_HTTP_ADDR", ":4318"),
 		MaxRequestBytes: int64(e.int("VINDICE_MAX_REQUEST_BYTES", 16<<20)),
+		QueryAddr:       e.str("VINDICE_QUERY_ADDR", ":8080"),
 
 		BatchRows:     e.int("VINDICE_BATCH_ROWS", 50_000),
 		FlushInterval: e.dur("VINDICE_FLUSH_INTERVAL", 3*time.Second),

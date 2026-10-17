@@ -1,9 +1,10 @@
 // Command vindice runs the Vindice observability backend. It is the
 // composition root: adapters are built here and injected into the core.
 //
-//	vindice -mode=all      ingest + writer in one process (default)
+//	vindice -mode=all      ingest + writer + query in one process (default)
 //	vindice -mode=ingest   OTLP receivers -> Kafka
 //	vindice -mode=writer   Kafka -> ClickHouse
+//	vindice -mode=query    REST API and UI over ClickHouse
 package main
 
 import (
@@ -21,6 +22,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/httpapi"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/kafkaconsumer"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/otlpgrpc"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/otlphttp"
@@ -30,10 +32,11 @@ import (
 	"github.com/b1ll1eee/vindice-obs/internal/config"
 	"github.com/b1ll1eee/vindice-obs/internal/core/policy"
 	"github.com/b1ll1eee/vindice-obs/internal/core/service"
+	"github.com/b1ll1eee/vindice-obs/web"
 )
 
 func main() {
-	mode := flag.String("mode", "all", "all | ingest | writer")
+	mode := flag.String("mode", "all", "all | ingest | writer | query")
 	flag.Parse()
 
 	cfg, err := config.Load()
@@ -53,23 +56,37 @@ func main() {
 }
 
 func run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) error {
-	var ingest, writer bool
+	var ingest, writer, query bool
 	switch mode {
 	case "all":
-		ingest, writer = true, true
+		ingest, writer, query = true, true, true
 	case "ingest":
 		ingest = true
 	case "writer":
 		writer = true
+	case "query":
+		query = true
 	default:
 		return fmt.Errorf("unknown mode %q", mode)
 	}
 	log.Info("starting vindice", "mode", mode)
 
-	if err := retry(ctx, log, "kafka", func(ctx context.Context) error {
-		return kafka.EnsureTopics(ctx, cfg.KafkaBrokers, cfg.KafkaPartitions, cfg.KafkaRetention)
-	}); err != nil {
-		return err
+	if ingest || writer {
+		if err := retry(ctx, log, "kafka", func(ctx context.Context) error {
+			return kafka.EnsureTopics(ctx, cfg.KafkaBrokers, cfg.KafkaPartitions, cfg.KafkaRetention)
+		}); err != nil {
+			return err
+		}
+	}
+
+	// Writer and query share one ClickHouse connection pool.
+	var repo *clickhouse.Repository
+	if writer || query {
+		var err error
+		if repo, err = openClickHouse(ctx, cfg, log); err != nil {
+			return err
+		}
+		defer repo.Close()
 	}
 
 	g, ctx := errgroup.WithContext(ctx)
@@ -79,9 +96,12 @@ func run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 		}
 	}
 	if writer {
-		if err := startWriter(ctx, g, cfg, log); err != nil {
+		if err := startWriter(ctx, g, cfg, repo, log); err != nil {
 			return err
 		}
+	}
+	if query {
+		startQuery(ctx, g, cfg, repo, log)
 	}
 	return g.Wait()
 }
@@ -128,14 +148,11 @@ func startIngest(ctx context.Context, g *errgroup.Group, cfg config.Config, log 
 	return nil
 }
 
-func startWriter(ctx context.Context, g *errgroup.Group, cfg config.Config, log *slog.Logger) error {
-	filter, err := policy.LoadFilter(cfg.RulesFile)
-	if err != nil {
-		return err
-	}
-
+// openClickHouse connects (waiting for ClickHouse if needed) and migrates the
+// schema, which is idempotent, so any mode may start first.
+func openClickHouse(ctx context.Context, cfg config.Config, log *slog.Logger) (*clickhouse.Repository, error) {
 	var repo *clickhouse.Repository
-	if err := retry(ctx, log, "clickhouse", func(ctx context.Context) error {
+	err := retry(ctx, log, "clickhouse", func(ctx context.Context) (err error) {
 		repo, err = clickhouse.Open(ctx, clickhouse.Config{
 			Addrs:             cfg.ClickHouseAddrs,
 			Database:          cfg.ClickHouseDB,
@@ -154,11 +171,20 @@ func startWriter(ctx context.Context, g *errgroup.Group, cfg config.Config, log 
 			},
 		})
 		return err
-	}); err != nil {
-		return err
+	})
+	if err != nil {
+		return nil, err
 	}
 	if err := repo.Migrate(ctx); err != nil {
 		_ = repo.Close()
+		return nil, err
+	}
+	return repo, nil
+}
+
+func startWriter(ctx context.Context, g *errgroup.Group, cfg config.Config, repo *clickhouse.Repository, log *slog.Logger) error {
+	filter, err := policy.LoadFilter(cfg.RulesFile)
+	if err != nil {
 		return err
 	}
 
@@ -182,16 +208,35 @@ func startWriter(ctx context.Context, g *errgroup.Group, cfg config.Config, log 
 		FlushInterval: cfg.FlushInterval,
 	}, writerSvc, log)
 	if err != nil {
-		_ = repo.Close()
 		return err
 	}
 
 	g.Go(func() error {
-		defer repo.Close()
 		log.Info("writer consuming", "group", cfg.KafkaGroup)
 		return consumer.Run(ctx)
 	})
 	return nil
+}
+
+func startQuery(ctx context.Context, g *errgroup.Group, cfg config.Config, repo *clickhouse.Repository, log *slog.Logger) {
+	srv := &http.Server{
+		Addr:              cfg.QueryAddr,
+		Handler:           httpapi.New(service.NewQueryService(repo), web.Handler(), log),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	g.Go(func() error {
+		log.Info("query api and ui listening", "addr", cfg.QueryAddr)
+		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	})
+	g.Go(func() error {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
+	})
 }
 
 // retry calls fn until it succeeds or ctx ends, so services can start before

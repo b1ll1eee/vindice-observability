@@ -68,6 +68,7 @@ services:
     ports:
       - "4317:4317"
       - "4318:4318"
+      - "8080:8080"
     mem_limit: 512m
     depends_on:
       kafka: { condition: service_healthy }

@@ -67,7 +67,11 @@ func TestEndToEnd(t *testing.T) {
 
 	// ClickHouse, in a throwaway database
 	db := fmt.Sprintf("vindice_it_%d", time.Now().UnixNano())
-	cfg := chrepo.Config{Addrs: []string{chAddr}, Database: db, User: "default", Retention: chrepo.Retention{
+	user, password := os.Getenv("VINDICE_IT_CH_USER"), os.Getenv("VINDICE_IT_CH_PASSWORD")
+	if user == "" {
+		user = "default"
+	}
+	cfg := chrepo.Config{Addrs: []string{chAddr}, Database: db, User: user, Password: password, Retention: chrepo.Retention{
 		DebugLogs: 3, InfoLogs: 14, ErrorLogs: 90, Traces: 7, MetricsRaw: 7, Metrics1m: 30, Metrics1h: 365,
 	}}
 	repo, err := chrepo.Open(ctx, cfg)
@@ -80,7 +84,7 @@ func TestEndToEnd(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	conn, err := clickhouse.Open(&clickhouse.Options{Addr: []string{chAddr}, Auth: clickhouse.Auth{Database: db}})
+	conn, err := clickhouse.Open(&clickhouse.Options{Addr: []string{chAddr}, Auth: clickhouse.Auth{Database: db, Username: user, Password: password}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,6 +179,98 @@ func TestEndToEnd(t *testing.T) {
 	if !bytes.Contains([]byte(ttl), []byte("WHERE (severity_number >= 1) AND (severity_number <= 8)")) &&
 		!bytes.Contains([]byte(ttl), []byte("severity_number BETWEEN 1 AND 8")) {
 		t.Errorf("severity-based TTL missing:\n%s", ttl)
+	}
+
+	testReadSide(ctx, t, service.NewQueryService(repo))
+}
+
+// testReadSide runs every query through the real ClickHouse reader.
+func testReadSide(ctx context.Context, t *testing.T, q *service.QueryService) {
+	window := domain.TimeRange{From: time.Now().Add(-10 * time.Minute), To: time.Now().Add(time.Minute)}
+
+	svcs, err := q.Services(ctx, window)
+	if err != nil {
+		t.Fatalf("services: %v", err)
+	}
+	if len(svcs) != 1 || svcs[0].Name != "orders" || svcs[0].Requests != 2 || svcs[0].Errors != 1 ||
+		svcs[0].Logs != 3 || svcs[0].LogErrors != 1 || svcs[0].Latency.P95 <= 0 {
+		t.Errorf("services = %+v", svcs)
+	}
+
+	ops, err := q.Operations(ctx, "orders", window)
+	if err != nil || len(ops) != 2 {
+		t.Errorf("operations = %+v, %v", ops, err)
+	}
+
+	for name, c := range map[string]struct {
+		query domain.LogQuery
+		want  int
+	}{
+		"all":                {domain.LogQuery{Range: window}, 3},
+		"text, any case":     {domain.LogQuery{Range: window, Text: "TIMEOUT"}, 1},
+		"phrase":             {domain.LogQuery{Range: window, Text: "order created"}, 1},
+		"no match":           {domain.LogQuery{Range: window, Text: "nothing-like-this"}, 0},
+		"errors only":        {domain.LogQuery{Range: window, MinSeverity: 17}, 1},
+		"service":            {domain.LogQuery{Range: window, Service: "orders"}, 3},
+		"trace":              {domain.LogQuery{Range: window, TraceID: (*[16]byte)(errTraceID)}, 1},
+		"page size":          {domain.LogQuery{Range: window, Limit: 2}, 2},
+		"cursor before data": {domain.LogQuery{Range: window, Before: time.Now().Add(-5 * time.Minute)}, 0},
+	} {
+		page, err := q.SearchLogs(ctx, c.query)
+		if err != nil {
+			t.Errorf("logs %s: %v", name, err)
+			continue
+		}
+		if len(page.Entries) != c.want {
+			t.Errorf("logs %s: got %d, want %d", name, len(page.Entries), c.want)
+		}
+		if len(page.Entries) > 0 && page.Entries[0].Resource["host.name"] != "node-1" {
+			t.Errorf("logs %s: resource not attached: %v", name, page.Entries[0].Resource)
+		}
+	}
+
+	for name, lq := range map[string]domain.LogQuery{
+		"rollup": {Range: window},
+		"raw":    {Range: window, Text: "timeout"},
+	} {
+		h, err := q.LogHistogram(ctx, lq)
+		if err != nil {
+			t.Errorf("histogram %s: %v", name, err)
+			continue
+		}
+		var total, errs uint64
+		for _, b := range h.Buckets {
+			total += b.Debug + b.Info + b.Warn + b.Errors
+			errs += b.Errors
+		}
+		if name == "rollup" && (total != 3 || errs != 1) {
+			t.Errorf("histogram rollup: total %d errors %d", total, errs)
+		}
+		if name == "raw" && (total != 1 || errs != 1) {
+			t.Errorf("histogram raw: total %d errors %d", total, errs)
+		}
+	}
+
+	traces, err := q.SearchTraces(ctx, domain.TraceQuery{Range: window, ErrorsOnly: true})
+	if err != nil || len(traces) != 1 || traces[0].Name != "POST /orders" || traces[0].HTTPStatus != 500 {
+		t.Errorf("traces = %+v, %v", traces, err)
+	}
+	if slow, _ := q.SearchTraces(ctx, domain.TraceQuery{Range: window, MinDuration: time.Hour}); len(slow) != 0 {
+		t.Errorf("min duration filter: %d traces", len(slow))
+	}
+
+	tr, err := q.Trace(ctx, [16]byte(errTraceID))
+	if err != nil {
+		t.Fatalf("trace: %v", err)
+	}
+	if len(tr.Spans) != 2 || len(tr.Logs) != 1 || tr.Resources[tr.Spans[0].ResourceID]["host.name"] != "node-1" {
+		t.Errorf("trace = %d spans, %d logs, resources %v", len(tr.Spans), len(tr.Logs), tr.Resources)
+	}
+	if tr.Spans[1].ParentSpanID != tr.Spans[0].SpanID {
+		t.Errorf("child span not linked to root")
+	}
+	if _, err := q.Trace(ctx, [16]byte{0xde, 0xad}); err != domain.ErrNotFound {
+		t.Errorf("unknown trace: %v", err)
 	}
 }
 

@@ -15,6 +15,16 @@ type Ingestor interface {
 	Ingest(ctx context.Context, sig domain.Signal, payload []byte) error
 }
 
+// Querier answers the read-side questions the UI asks.
+type Querier interface {
+	Services(ctx context.Context, r domain.TimeRange) ([]domain.ServiceSummary, error)
+	Operations(ctx context.Context, service string, r domain.TimeRange) ([]domain.OperationSummary, error)
+	SearchLogs(ctx context.Context, q domain.LogQuery) (domain.LogPage, error)
+	LogHistogram(ctx context.Context, q domain.LogQuery) (domain.Histogram, error)
+	SearchTraces(ctx context.Context, q domain.TraceQuery) ([]domain.TraceSummary, error)
+	Trace(ctx context.Context, id [16]byte) (domain.Trace, error)
+}
+
 // BatchWriter buffers decoded telemetry and persists it on Flush.
 // It is driven by the queue consumer, which commits offsets only after a
 // successful Flush.
