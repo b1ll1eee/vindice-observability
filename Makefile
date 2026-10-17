@@ -26,9 +26,9 @@ logs:
 
 # Send sample traces, logs and metrics through the running stack.
 demo:
-	$(GEN) traces  --otlp-endpoint vindice:4317 --otlp-insecure --traces 200 --child-spans 3 --service demo-api
-	$(GEN) logs    --otlp-endpoint vindice:4317 --otlp-insecure --logs 1000 --service demo-api
-	$(GEN) metrics --otlp-endpoint vindice:4317 --otlp-insecure --metrics 100 --service demo-api
+	$(GEN) traces  --otlp-endpoint vindice:4317 --otlp-insecure --rate 0 --traces 200 --child-spans 3 --service demo-api
+	$(GEN) logs    --otlp-endpoint vindice:4317 --otlp-insecure --rate 0 --logs 1000 --service demo-api
+	$(GEN) metrics --otlp-endpoint vindice:4317 --otlp-insecure --rate 0 --metrics 100 --service demo-api
 
 # Row counts and on-disk size per table.
 stats:

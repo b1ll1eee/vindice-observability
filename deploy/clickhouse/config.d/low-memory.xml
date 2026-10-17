@@ -5,7 +5,8 @@
     <uncompressed_cache_size>16777216</uncompressed_cache_size>
     <max_server_memory_usage_to_ram_ratio>0.75</max_server_memory_usage_to_ram_ratio>
     <max_concurrent_queries>64</max_concurrent_queries>
-    <background_pool_size>4</background_pool_size>
+    <!-- background_pool_size stays at its default: several merge_tree
+         defaults must fit within it, and idle merge threads cost little. -->
 
     <logger>
         <level>warning</level>
