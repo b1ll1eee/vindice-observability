@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates the README architecture diagram (light and dark SVG).
+"""Generates the README logo and architecture diagram (light and dark SVG).
 
 Run from the repo root:  python3 docs/assets/gen_diagrams.py
 Every component drawn here exists in the code: ports and routes in
@@ -113,7 +113,19 @@ def render(theme):
     return "\n".join(out) + "\n"
 
 
+LOGO = """<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+<stop offset="0" stop-color="#6a5ae0"/><stop offset="1" stop-color="#b07cff"/></linearGradient></defs>
+<rect width="96" height="96" rx="24" fill="url(#g)"/>
+<circle cx="48" cy="48" r="26" fill="none" stroke="#ffffff" stroke-width="9"/>
+<circle cx="48" cy="48" r="9.5" fill="#ffffff"/>
+</svg>
+"""
+
+
 if __name__ == "__main__":
+    (OUT / "logo.svg").write_text(LOGO)
+    print(OUT / "logo.svg")
     for theme in THEMES:
         path = OUT / f"architecture-{theme}.svg"
         path.write_text(render(theme))
