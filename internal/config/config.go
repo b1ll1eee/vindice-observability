@@ -32,6 +32,14 @@ type Config struct {
 	// PublicURL is where users reach the UI; alert messages link to it.
 	PublicURL string
 
+	AdminUsername string
+	// AdminPassword seeds the first admin; when empty a random one is logged once.
+	AdminPassword string
+	// SessionSecret signs session cookies; when empty a key is generated and
+	// stored in ClickHouse, shared by all instances.
+	SessionSecret string
+	SessionTTL    time.Duration
+
 	AlertInterval  time.Duration
 	TelegramToken  string
 	TelegramChatID string
@@ -82,6 +90,11 @@ func Load() (Config, error) {
 		MaxRequestBytes: int64(e.int("VINDICE_MAX_REQUEST_BYTES", 16<<20)),
 		QueryAddr:       e.str("VINDICE_QUERY_ADDR", ":8080"),
 		PublicURL:       e.str("VINDICE_PUBLIC_URL", "http://localhost:8080"),
+
+		AdminUsername: e.str("VINDICE_ADMIN_USERNAME", "admin"),
+		AdminPassword: e.str("VINDICE_ADMIN_PASSWORD", ""),
+		SessionSecret: e.str("VINDICE_SESSION_SECRET", ""),
+		SessionTTL:    e.dur("VINDICE_SESSION_TTL", 7*24*time.Hour),
 
 		AlertInterval:  e.dur("VINDICE_ALERT_INTERVAL", 30*time.Second),
 		TelegramToken:  e.str("VINDICE_TELEGRAM_BOT_TOKEN", ""),

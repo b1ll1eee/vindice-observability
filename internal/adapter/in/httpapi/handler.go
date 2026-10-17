@@ -19,6 +19,9 @@ type Handler struct {
 	metrics    port.MetricsQuerier
 	dashboards port.DashboardManager
 	alerts     port.AlertManager
+	auth       port.Authenticator
+	users      port.UserManager
+	cookie     cookieConfig
 	log        *slog.Logger
 }
 
@@ -27,42 +30,70 @@ type Deps struct {
 	Metrics    port.MetricsQuerier
 	Dashboards port.DashboardManager
 	Alerts     port.AlertManager
+	// Auth protects every /api/v1 route; nil disables authentication
+	// (only for tests).
+	Auth  port.Authenticator
+	Users port.UserManager
+	// SecureCookies marks the session cookie Secure (serve over HTTPS).
+	SecureCookies bool
+	SessionTTL    time.Duration
 	// UI serves every path outside /api; may be nil.
 	UI  http.Handler
 	Log *slog.Logger
 }
 
-// New returns the API under /api/v1. Route groups whose dependency is nil
-// are not registered.
+// New returns the API under /api/v1. Each route names the least role that
+// may call it; route groups whose dependency is nil are not registered.
 func New(d Deps) http.Handler {
-	h := &Handler{q: d.Querier, metrics: d.Metrics, dashboards: d.Dashboards, alerts: d.Alerts, log: d.Log}
+	h := &Handler{
+		q: d.Querier, metrics: d.Metrics, dashboards: d.Dashboards, alerts: d.Alerts,
+		auth: d.Auth, users: d.Users, log: d.Log,
+		cookie: cookieConfig{secure: d.SecureCookies, ttl: d.SessionTTL},
+	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/services", h.services)
-	mux.HandleFunc("GET /api/v1/services/{service}/operations", h.operations)
-	mux.HandleFunc("GET /api/v1/logs", h.logs)
-	mux.HandleFunc("GET /api/v1/logs/histogram", h.histogram)
-	mux.HandleFunc("GET /api/v1/traces", h.traces)
-	mux.HandleFunc("GET /api/v1/traces/{id}", h.trace)
+	route := func(pattern string, need domain.Role, fn http.HandlerFunc) {
+		mux.Handle(pattern, h.guard(need, fn))
+	}
+	viewer, editor, admin := domain.RoleViewer, domain.RoleEditor, domain.RoleAdmin
+
+	route("GET /api/v1/services", viewer, h.services)
+	route("GET /api/v1/services/{service}/operations", viewer, h.operations)
+	route("GET /api/v1/logs", viewer, h.logs)
+	route("GET /api/v1/logs/histogram", viewer, h.histogram)
+	route("GET /api/v1/traces", viewer, h.traces)
+	route("GET /api/v1/traces/{id}", viewer, h.trace)
 	if d.Metrics != nil {
-		mux.HandleFunc("GET /api/v1/services/{service}/series", h.serviceSeries)
-		mux.HandleFunc("GET /api/v1/metrics", h.metricNames)
-		mux.HandleFunc("GET /api/v1/metrics/query", h.queryMetric)
+		route("GET /api/v1/services/{service}/series", viewer, h.serviceSeries)
+		route("GET /api/v1/metrics", viewer, h.metricNames)
+		route("GET /api/v1/metrics/query", viewer, h.queryMetric)
 	}
 	if d.Dashboards != nil {
-		mux.HandleFunc("GET /api/v1/dashboards", h.listDashboards)
-		mux.HandleFunc("POST /api/v1/dashboards", h.saveDashboard)
-		mux.HandleFunc("GET /api/v1/dashboards/{id}", h.getDashboard)
-		mux.HandleFunc("PUT /api/v1/dashboards/{id}", h.saveDashboard)
-		mux.HandleFunc("DELETE /api/v1/dashboards/{id}", h.deleteDashboard)
+		route("GET /api/v1/dashboards", viewer, h.listDashboards)
+		route("POST /api/v1/dashboards", editor, h.saveDashboard)
+		route("GET /api/v1/dashboards/{id}", viewer, h.getDashboard)
+		route("PUT /api/v1/dashboards/{id}", editor, h.saveDashboard)
+		route("DELETE /api/v1/dashboards/{id}", editor, h.deleteDashboard)
 	}
 	if d.Alerts != nil {
-		mux.HandleFunc("GET /api/v1/alerts", h.listRules)
-		mux.HandleFunc("POST /api/v1/alerts", h.saveRule)
-		mux.HandleFunc("GET /api/v1/alerts/events", h.alertEvents)
-		mux.HandleFunc("GET /api/v1/alerts/{id}", h.getRule)
-		mux.HandleFunc("PUT /api/v1/alerts/{id}", h.saveRule)
-		mux.HandleFunc("DELETE /api/v1/alerts/{id}", h.deleteRule)
-		mux.HandleFunc("POST /api/v1/alerts/{id}/test", h.testRule)
+		route("GET /api/v1/alerts", viewer, h.listRules)
+		route("POST /api/v1/alerts", editor, h.saveRule)
+		route("GET /api/v1/alerts/events", viewer, h.alertEvents)
+		route("GET /api/v1/alerts/{id}", viewer, h.getRule)
+		route("PUT /api/v1/alerts/{id}", editor, h.saveRule)
+		route("DELETE /api/v1/alerts/{id}", editor, h.deleteRule)
+		route("POST /api/v1/alerts/{id}/test", editor, h.testRule)
+	}
+	if d.Auth != nil {
+		mux.HandleFunc("POST /api/v1/auth/login", h.login)
+		route("POST /api/v1/auth/logout", viewer, h.logout)
+		route("GET /api/v1/auth/me", viewer, h.me)
+		route("POST /api/v1/auth/password", viewer, h.changePassword)
+	}
+	if d.Users != nil {
+		route("GET /api/v1/users", admin, h.listUsers)
+		route("POST /api/v1/users", admin, h.createUser)
+		route("PUT /api/v1/users/{id}", admin, h.updateUser)
+		route("DELETE /api/v1/users/{id}", admin, h.deleteUser)
 	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
@@ -71,7 +102,7 @@ func New(d Deps) http.Handler {
 	if d.UI != nil {
 		mux.Handle("/", d.UI)
 	}
-	return mux
+	return sameOrigin(mux)
 }
 
 func (h *Handler) services(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +307,13 @@ func (p *params) timeRange() domain.TimeRange {
 }
 
 func isClientError(err error) bool {
-	return errors.Is(err, domain.ErrInvalidQuery) || errors.Is(err, domain.ErrNotFound)
+	for _, e := range []error{domain.ErrInvalidQuery, domain.ErrNotFound, domain.ErrUnauthenticated,
+		domain.ErrForbidden, domain.ErrBadCredentials, domain.ErrLockedOut} {
+		if errors.Is(err, e) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) fail(w http.ResponseWriter, err error) {
@@ -285,6 +322,12 @@ func (h *Handler) fail(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, domain.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, domain.ErrUnauthenticated), errors.Is(err, domain.ErrBadCredentials):
+		writeError(w, http.StatusUnauthorized, err.Error())
+	case errors.Is(err, domain.ErrForbidden):
+		writeError(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, domain.ErrLockedOut):
+		writeError(w, http.StatusTooManyRequests, err.Error())
 	default:
 		h.log.Error("query failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "query failed")

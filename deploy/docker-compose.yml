@@ -68,6 +68,10 @@ services:
       VINDICE_TELEGRAM_CHAT_ID: ${VINDICE_TELEGRAM_CHAT_ID:-}
       VINDICE_TELEGRAM_API: ${VINDICE_TELEGRAM_API:-https://api.telegram.org}
       VINDICE_PUBLIC_URL: ${VINDICE_PUBLIC_URL:-http://localhost:8080}
+      # First admin (only used while there are no users) and session key.
+      VINDICE_ADMIN_USERNAME: ${VINDICE_ADMIN_USERNAME:-admin}
+      VINDICE_ADMIN_PASSWORD: ${VINDICE_ADMIN_PASSWORD:-}
+      VINDICE_SESSION_SECRET: ${VINDICE_SESSION_SECRET:-}
     volumes:
       - ../examples/rules.json:/etc/vindice/rules.json:ro
     ports:

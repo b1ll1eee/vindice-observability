@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,9 +33,11 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/httpapi"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/kafkaconsumer"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/otlphttp"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/kafka"
+	"github.com/b1ll1eee/vindice-obs/internal/adapter/out/authcrypto"
 	chrepo "github.com/b1ll1eee/vindice-obs/internal/adapter/out/clickhouse"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/out/kafkapublisher"
 	"github.com/b1ll1eee/vindice-obs/internal/core/domain"
@@ -183,6 +186,94 @@ func TestEndToEnd(t *testing.T) {
 
 	testReadSide(ctx, t, service.NewQueryService(repo))
 	testMetricsDashboardsAlerts(ctx, t, repo)
+	testAuth(ctx, t, repo)
+}
+
+func testAuth(ctx context.Context, t *testing.T, repo *chrepo.Repository) {
+	key1, err := repo.GetOrCreateSecret(ctx, "session-key", func() string { return strings.Repeat("a", 64) })
+	key2, _ := repo.GetOrCreateSecret(ctx, "session-key", func() string { return strings.Repeat("b", 64) })
+	if err != nil || key1 != key2 || key1 != strings.Repeat("a", 64) {
+		t.Fatalf("secret not stable: %q %q %v", key1, key2, err)
+	}
+	codec, _ := authcrypto.NewHMAC([]byte(key1))
+	auth, err := service.NewAuthService(repo, authcrypto.Bcrypt{Cost: 4}, codec, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gen, err := auth.Bootstrap(ctx, "admin", "admin-password-1"); err != nil || gen != "" {
+		t.Fatalf("bootstrap: %q %v", gen, err)
+	}
+	viewer, err := auth.CreateUser(ctx, "viewer1", domain.RoleViewer, "viewer-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(httpapi.New(httpapi.Deps{
+		Querier: service.NewQueryService(repo), Dashboards: service.NewDashboardService(repo),
+		Auth: auth, Users: auth, SessionTTL: time.Hour, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}))
+	defer srv.Close()
+
+	do := func(method, path, cookie, body string) *http.Response {
+		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		if cookie != "" {
+			req.AddCookie(&http.Cookie{Name: "vindice_session", Value: cookie})
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp
+	}
+	login := func(user, pw string) (string, int) {
+		resp := do("POST", "/api/v1/auth/login", "", fmt.Sprintf(`{"username":%q,"password":%q}`, user, pw))
+		for _, c := range resp.Cookies() {
+			if c.Name == "vindice_session" {
+				return c.Value, resp.StatusCode
+			}
+		}
+		return "", resp.StatusCode
+	}
+
+	if _, code := login("admin", "wrong-password"); code != http.StatusUnauthorized {
+		t.Errorf("bad password: %d", code)
+	}
+	if code := do("GET", "/api/v1/services", "", "").StatusCode; code != http.StatusUnauthorized {
+		t.Errorf("anonymous read: %d", code)
+	}
+	adminCookie, code := login("admin", "admin-password-1")
+	if code != http.StatusOK || adminCookie == "" {
+		t.Fatalf("admin login: %d", code)
+	}
+	viewerCookie, _ := login("viewer1", "viewer-password")
+
+	if code := do("GET", "/api/v1/services", viewerCookie, "").StatusCode; code != http.StatusOK {
+		t.Errorf("viewer read: %d", code)
+	}
+	if code := do("POST", "/api/v1/dashboards", viewerCookie, `{"title":"x","panels":[]}`).StatusCode; code != http.StatusForbidden {
+		t.Errorf("viewer write: %d", code)
+	}
+	if code := do("POST", "/api/v1/dashboards", adminCookie, `{"title":"x","panels":[]}`).StatusCode; code != http.StatusOK {
+		t.Errorf("admin write: %d", code)
+	}
+	if code := do("GET", "/api/v1/users", viewerCookie, "").StatusCode; code != http.StatusForbidden {
+		t.Errorf("viewer lists users: %d", code)
+	}
+
+	// Disabling the viewer ends their session at once; logout ends the admin's.
+	if code := do("PUT", "/api/v1/users/"+viewer.ID, adminCookie, `{"role":"viewer","disabled":true}`).StatusCode; code != http.StatusOK {
+		t.Fatalf("disable viewer: %d", code)
+	}
+	if code := do("GET", "/api/v1/services", viewerCookie, "").StatusCode; code != http.StatusUnauthorized {
+		t.Errorf("disabled viewer still in: %d", code)
+	}
+	if code := do("POST", "/api/v1/auth/logout", adminCookie, "").StatusCode; code != http.StatusNoContent {
+		t.Fatalf("logout: %d", code)
+	}
+	if code := do("GET", "/api/v1/auth/me", adminCookie, "").StatusCode; code != http.StatusUnauthorized {
+		t.Errorf("cookie still valid after logout: %d", code)
+	}
 }
 
 type captureNotifier struct{ sent []domain.Notification }

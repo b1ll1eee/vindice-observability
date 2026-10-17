@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
+import { can } from '../auth'
 import { useLoader } from '../load'
 
 const router = useRouter()
@@ -22,7 +23,7 @@ async function create() {
 
 <template>
   <h1>Dashboards</h1>
-  <form class="toolbar" @submit.prevent="create">
+  <form v-if="can('editor')" class="toolbar" @submit.prevent="create">
     <input v-model.trim="title" placeholder="New dashboard title" required />
     <button type="submit">Create</button>
     <span v-if="createError" class="bad">{{ createError }}</span>

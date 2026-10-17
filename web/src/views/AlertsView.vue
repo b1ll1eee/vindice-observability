@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { api, type AlertRule, type Op } from '../api'
 import SignalEditor from '../components/SignalEditor.vue'
+import { can } from '../auth'
 import { time } from '../format'
 import { useLoader } from '../load'
 import { describeSignal, measureFormat } from '../signals'
@@ -78,7 +79,7 @@ function dur(sec: number) {
   <div class="titlebar">
     <h1>Alerts</h1>
     <div class="spacer" />
-    <button v-if="!draft" @click="edit()">New alert</button>
+    <button v-if="!draft && can('editor')" @click="edit()">New alert</button>
   </div>
   <p class="muted">Notifications go to Telegram. Rules are evaluated every 30 seconds.</p>
 
@@ -133,7 +134,7 @@ function dur(sec: number) {
           </td>
           <td class="mono small">{{ describeSignal(r.signal) }} {{ r.op }} {{ r.threshold }} over {{ dur(r.window_sec) }}, for {{ dur(r.for_sec) }}</td>
           <td class="num">{{ r.status ? fmt(r, r.status.value) : '–' }}</td>
-          <td class="actions nowrap">
+          <td v-if="can('editor')" class="actions nowrap">
             <span v-if="testMsg[r.id!]" class="muted small">{{ testMsg[r.id!] }}</span>
             <button @click="test(r)">Test</button>
             <button @click="toggle(r)">{{ r.enabled ? 'Disable' : 'Enable' }}</button>

@@ -1,5 +1,9 @@
 <script setup lang="ts">
+import { useRoute } from 'vue-router'
+import { can, logout, user } from './auth'
 import { presets, refreshTick, useTimeRange, type PresetKey } from './range'
+
+const route = useRoute()
 
 const { key, setKey } = useTimeRange()
 
@@ -9,7 +13,8 @@ function onRange(e: Event) {
 </script>
 
 <template>
-  <div class="shell">
+  <RouterView v-if="route.meta.public" />
+  <div v-else class="shell">
     <nav class="sidebar">
       <RouterLink to="/services" class="brand">
         <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true">
@@ -24,6 +29,7 @@ function onRange(e: Event) {
       <RouterLink :to="{ path: '/explore', query: { range: key } }">Explore</RouterLink>
       <RouterLink :to="{ path: '/dashboards', query: { range: key } }">Dashboards</RouterLink>
       <RouterLink to="/alerts">Alerts</RouterLink>
+      <RouterLink v-if="can('admin')" to="/users">Users</RouterLink>
     </nav>
     <div class="main">
       <header class="topbar">
@@ -32,6 +38,10 @@ function onRange(e: Event) {
           <option v-for="p in presets" :key="p.key" :value="p.key">{{ p.label }}</option>
         </select>
         <button class="icon" title="Refresh" @click="refreshTick++">↻</button>
+        <RouterLink v-if="user" to="/account" class="who" :title="`Signed in as ${user.username}`">
+          {{ user.username }} <span class="muted">· {{ user.role }}</span>
+        </RouterLink>
+        <button v-if="user" @click="logout">Sign out</button>
       </header>
       <main class="content">
         <RouterView />
@@ -39,3 +49,7 @@ function onRange(e: Event) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.who { color: var(--text); padding: 0 6px; font-size: 13px; }
+</style>

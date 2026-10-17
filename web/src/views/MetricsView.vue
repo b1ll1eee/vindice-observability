@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { api, type SignalQuery } from '../api'
 import SignalEditor from '../components/SignalEditor.vue'
 import SignalPanel from '../components/SignalPanel.vue'
+import { can } from '../auth'
 import { useLoader } from '../load'
 import { describeSignal } from '../signals'
 
@@ -48,7 +49,7 @@ async function addToDashboard() {
 
   <template v-if="shown">
     <SignalPanel :title="describeSignal(shown)" :signal="shown" />
-    <div class="toolbar add">
+    <div v-if="can('editor')" class="toolbar add">
       <select v-model="target">
         <option value="">Add to dashboard…</option>
         <option v-for="d in dashboards.data.value ?? []" :key="d.id" :value="d.id">{{ d.title }}</option>

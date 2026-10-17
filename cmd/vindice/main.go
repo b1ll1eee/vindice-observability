@@ -10,6 +10,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -28,6 +31,7 @@ import (
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/otlpgrpc"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/in/otlphttp"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/kafka"
+	"github.com/b1ll1eee/vindice-obs/internal/adapter/out/authcrypto"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/out/clickhouse"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/out/kafkapublisher"
 	"github.com/b1ll1eee/vindice-obs/internal/adapter/out/telegram"
@@ -112,9 +116,15 @@ func run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 			PublicURL: cfg.PublicURL, Log: log,
 		})
 		if query {
+			auth, err := newAuth(ctx, cfg, repo, log)
+			if err != nil {
+				return err
+			}
 			startQuery(ctx, g, cfg, httpapi.Deps{
 				Querier: queries, Metrics: queries, Dashboards: service.NewDashboardService(repo),
-				Alerts: alerts, UI: web.Handler(), Log: log,
+				Alerts: alerts, Auth: auth, Users: auth,
+				SecureCookies: strings.HasPrefix(cfg.PublicURL, "https://"), SessionTTL: cfg.SessionTTL,
+				UI: web.Handler(), Log: log,
 			}, log)
 		}
 		if alert {
@@ -258,6 +268,41 @@ func startQuery(ctx context.Context, g *errgroup.Group, cfg config.Config, deps 
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
 	})
+}
+
+// newAuth builds the authenticator and creates the first admin if there
+// are no users yet.
+func newAuth(ctx context.Context, cfg config.Config, repo *clickhouse.Repository, log *slog.Logger) (*service.AuthService, error) {
+	secret := cfg.SessionSecret
+	if secret == "" {
+		var err error
+		secret, err = repo.GetOrCreateSecret(ctx, "session-key", func() string {
+			b := make([]byte, 32)
+			_, _ = rand.Read(b)
+			return hex.EncodeToString(b)
+		})
+		if err != nil {
+			return nil, fmt.Errorf("session key: %w", err)
+		}
+	}
+	codec, err := authcrypto.NewHMAC([]byte(secret))
+	if err != nil {
+		return nil, fmt.Errorf("VINDICE_SESSION_SECRET: %w", err)
+	}
+	auth, err := service.NewAuthService(repo, authcrypto.Bcrypt{}, codec, cfg.SessionTTL)
+	if err != nil {
+		return nil, err
+	}
+	generated, err := auth.Bootstrap(ctx, cfg.AdminUsername, cfg.AdminPassword)
+	if err != nil {
+		return nil, fmt.Errorf("create first admin: %w", err)
+	}
+	if generated != "" {
+		// Shown once, on the very first start; change it after signing in.
+		log.Warn("created first admin user, change this password after signing in",
+			"username", cfg.AdminUsername, "password", generated)
+	}
+	return auth, nil
 }
 
 // notifier picks Telegram when a bot token is set, else logs alerts.

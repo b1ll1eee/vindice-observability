@@ -86,6 +86,32 @@ type AlertStateRepository interface {
 	Events(ctx context.Context, ruleID string, limit int) ([]domain.AlertEvent, error)
 }
 
+type UserRepository interface {
+	ListUsers(ctx context.Context) ([]domain.User, error)
+	GetUser(ctx context.Context, id string) (domain.User, bool, error)
+	SaveUser(ctx context.Context, u domain.User) error
+	DeleteUser(ctx context.Context, id string) error
+}
+
+// SecretStore keeps a named secret shared by every instance (e.g. the
+// session signing key), creating it with gen the first time.
+type SecretStore interface {
+	GetOrCreateSecret(ctx context.Context, name string, gen func() string) (string, error)
+}
+
+type PasswordHasher interface {
+	Hash(password string) (string, error)
+	// Verify reports whether password matches hash.
+	Verify(hash, password string) bool
+}
+
+// SessionCodec turns sessions into tamper-proof tokens and back.
+type SessionCodec interface {
+	Encode(s domain.Session) string
+	// Decode rejects tokens that are forged or expired.
+	Decode(token string, now time.Time) (domain.Session, error)
+}
+
 // Notifier delivers alert notifications (Telegram, ...).
 type Notifier interface {
 	Notify(ctx context.Context, n domain.Notification) error

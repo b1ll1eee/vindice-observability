@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, type Dashboard, type Panel } from '../api'
 import SignalEditor from '../components/SignalEditor.vue'
 import SignalPanel from '../components/SignalPanel.vue'
+import { can } from '../auth'
 import { useLoader } from '../load'
 
 const props = defineProps<{ id: string }>()
@@ -14,7 +15,7 @@ const router = useRouter()
 const { data, error, loading } = useLoader(() => api.dashboard(id.value), [id])
 
 // Editing works on a deep copy; Save sends it, Cancel drops it.
-const editing = computed(() => route.query.edit === '1')
+const editing = computed(() => route.query.edit === '1' && can('editor'))
 const draft = ref<Dashboard>()
 watch([data, editing], () => {
   draft.value = editing.value && data.value ? JSON.parse(JSON.stringify(data.value)) : undefined
@@ -75,7 +76,7 @@ async function remove() {
         <button @click="setEditing(false)">Cancel</button>
         <button class="primary" @click="save">Save</button>
       </template>
-      <template v-else>
+      <template v-else-if="can('editor')">
         <button @click="setEditing(true)">Edit</button>
         <button @click="remove">Delete</button>
       </template>

@@ -51,6 +51,26 @@ type AlertManager interface {
 	TestRule(ctx context.Context, id string) error
 }
 
+// Authenticator signs users in and resolves sessions.
+type Authenticator interface {
+	// Login checks credentials (with lockout) and returns a session token.
+	Login(ctx context.Context, username, password, clientIP string) (token string, u domain.User, err error)
+	// Authenticate resolves a session token to its user.
+	Authenticate(ctx context.Context, token string) (domain.User, error)
+	// Logout ends every session of the user.
+	Logout(ctx context.Context, userID string) error
+	ChangePassword(ctx context.Context, userID, current, next string) error
+}
+
+// UserManager is for admins.
+type UserManager interface {
+	ListUsers(ctx context.Context) ([]domain.User, error)
+	CreateUser(ctx context.Context, username string, role domain.Role, password string) (domain.User, error)
+	// UpdateUser changes role and disabled state; a non-empty password resets it.
+	UpdateUser(ctx context.Context, actorID, id string, role domain.Role, disabled bool, password string) (domain.User, error)
+	DeleteUser(ctx context.Context, actorID, id string) error
+}
+
 // BatchWriter buffers decoded telemetry and persists it on Flush.
 // It is driven by the queue consumer, which commits offsets only after a
 // successful Flush.

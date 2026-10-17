@@ -204,7 +204,25 @@ export interface AlertEvent {
   message?: string
 }
 
-export class ApiError extends Error {}
+export type Role = 'viewer' | 'editor' | 'admin'
+
+export interface User {
+  id: string
+  username: string
+  role: Role
+  disabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status = 0,
+  ) {
+    super(message)
+  }
+}
 
 type Params = Record<string, string | number | boolean | string[] | undefined>
 
@@ -219,9 +237,13 @@ async function request<T>(method: string, path: string, params: Params = {}, bod
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
+  if (res.status === 401 && !path.startsWith('/auth/') && location.pathname !== '/login') {
+    // Session expired or revoked: sign in again and come back.
+    location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`)
+  }
   if (res.status === 204) return undefined as T
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new ApiError(data.error ?? `${res.status} ${res.statusText}`)
+  if (!res.ok) throw new ApiError(data.error ?? `${res.status} ${res.statusText}`, res.status)
   return data as T
 }
 
@@ -264,4 +286,17 @@ export const api = {
   deleteAlert: (id: string) => request<void>('DELETE', `/alerts/${id}`),
   testAlert: (id: string) => request<void>('POST', `/alerts/${id}/test`),
   alertEvents: (limit = 50) => get<AlertEvent[]>('/alerts/events', { limit }),
+
+  login: (username: string, password: string) => request<User>('POST', '/auth/login', {}, { username, password }),
+  logout: () => request<void>('POST', '/auth/logout'),
+  me: () => get<User>('/auth/me'),
+  changePassword: (current: string, next: string) =>
+    request<void>('POST', '/auth/password', {}, { current, new: next }),
+
+  users: () => get<User[]>('/users'),
+  createUser: (username: string, role: Role, password: string) =>
+    request<User>('POST', '/users', {}, { username, role, password }),
+  updateUser: (id: string, role: Role, disabled: boolean, password?: string) =>
+    request<User>('PUT', `/users/${id}`, {}, { role, disabled, password: password || undefined }),
+  deleteUser: (id: string) => request<void>('DELETE', `/users/${id}`),
 }

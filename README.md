@@ -2,7 +2,7 @@
 
 Lightweight, self-hosted observability for logs, traces and metrics. Data comes in over OpenTelemetry (OTLP), is buffered in Kafka, and is stored in ClickHouse.
 
-> **Status:** phases 1–3 are done: ingest, storage, query API, UI (services, logs, traces, metrics explorer, dashboards) and alerting to Telegram.
+> **Status:** phases 1–4 are done: ingest, storage, query API, UI (services, logs, traces, metrics explorer, dashboards), alerting to Telegram, and sign-in with roles.
 
 ```
 app (OTel SDK) ──OTLP──▶ ingest ──zstd──▶ Kafka ──▶ writer ──batch──▶ ClickHouse
@@ -32,6 +32,31 @@ Point any OpenTelemetry SDK or Collector at `localhost:4317` (gRPC) or `http://l
 - **Explore.** Chart any metric. Choose an aggregation (`avg`, `sum`, `min`, `max`, `count`, `last`, or `rate`, which handles counter resets), filter by attributes and group by one attribute. Add the chart to a dashboard.
 - **Dashboards.** A grid of panels. Each panel charts a service RED measure, a metric query or a log count. Raw samples, 1-minute or 1-hour rollups are picked automatically from the time range.
 - **Alerts.** A rule watches the same kinds of signals as a panel. It fires when the value over a window crosses a threshold for a set time, and moves through `ok → pending → firing → ok`. Notifications go to Telegram on firing and on resolve. A **Test** button sends a sample message.
+
+## Sign-in and roles
+
+Every page and `/api/v1` route requires signing in.
+
+| Role | Can |
+|---|---|
+| `viewer` | read everything |
+| `editor` | + create and change dashboards and alerts |
+| `admin` | + manage users (**Users** page) |
+
+On the very first start, an admin user is created:
+- **Username** comes from `VINDICE_ADMIN_USERNAME` (default `admin`).
+- **Password** comes from `VINDICE_ADMIN_PASSWORD`. If that is empty, a random password is generated and printed once in the log. Find it with `make logs | grep "first admin"`, then change it on the **Account** page.
+
+Security details:
+- **Passwords** are hashed with bcrypt.
+- **Sessions** are signed cookies: HMAC-SHA256, HttpOnly, SameSite=Lax, and Secure when `VINDICE_PUBLIC_URL` uses https. They last `VINDICE_SESSION_TTL` (default 7 days).
+- **Ending sessions everywhere.** Each user has a session version. Changing the password, signing out or disabling the user bumps it, which ends that user's sessions on every device.
+- **Lockout.** Five failed sign-ins within 15 minutes, from the same address for the same username, lock that pair for 15 minutes.
+- **CSRF.** State-changing requests from another origin are refused.
+- **Safe user management.** The last active admin cannot be demoted, disabled or deleted, and admins cannot delete themselves.
+- **Session key.** If `VINDICE_SESSION_SECRET` is empty, a key is generated and stored in ClickHouse, shared by every instance.
+
+The OTLP ingest ports (4317/4318) do not require sign-in. Keep them on a private network.
 
 ## Alerts to Telegram
 
@@ -66,6 +91,9 @@ The UI is Vue 3 + TypeScript with no UI or chart library. It is built into `web/
 | `GET POST /api/v1/dashboards`, `GET PUT DELETE /api/v1/dashboards/{id}` | dashboards |
 | `GET POST /api/v1/alerts`, `GET PUT DELETE /api/v1/alerts/{id}` | alert rules, with current state |
 | `POST /api/v1/alerts/{id}/test` | send a test notification |
+| `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me` | session |
+| `POST /api/v1/auth/password` | change your password |
+| `GET POST /api/v1/users`, `PUT DELETE /api/v1/users/{id}` | users (admin) |
 | `GET /api/v1/alerts/events` | firing and resolved history |
 
 `from` and `to` are epoch milliseconds. Without them, the last hour is used.
@@ -78,9 +106,11 @@ The code follows hexagonal architecture (ports and adapters). The core does not 
 cmd/vindice/                composition root: builds adapters, injects them into the core
 internal/core/
   domain/                   entities and query objects: LogRow, SpanRow, Series, LogQuery, TraceQuery, ...
-  port/                     inbound (Ingestor, BatchWriter, Querier, MetricsQuerier, DashboardManager, AlertManager)
-                            outbound (Publisher, *Repository, TelemetryReader, Notifier)
-  service/                  IngestService, WriterService, QueryService, DashboardService, AlertService
+  port/                     inbound (Ingestor, BatchWriter, Querier, MetricsQuerier, DashboardManager, AlertManager,
+                            Authenticator, UserManager)
+                            outbound (Publisher, *Repository, TelemetryReader, Notifier, UserRepository,
+                            SecretStore, PasswordHasher, SessionCodec)
+  service/                  IngestService, WriterService, QueryService, DashboardService, AlertService, AuthService
   policy/                   drop rules, sampling, attribute promotion, dedupe
 internal/adapter/
   in/otlphttp, in/otlpgrpc  OTLP receivers → port.Ingestor
@@ -89,6 +119,7 @@ internal/adapter/
   out/kafkapublisher        port.Publisher
   out/clickhouse            write repositories, TelemetryReader, dashboard/alert stores, schema migration
   out/telegram              port.Notifier on the Telegram Bot API (LogNotifier when no token)
+  out/authcrypto            bcrypt PasswordHasher, HMAC SessionCodec
   otlpmap/                  OTLP protobuf → domain
 web/                        Vue UI, embedded into the binary
 ```
@@ -166,4 +197,5 @@ VINDICE_IT_CH_ADDR=localhost:9000 \
 - **Tail sampling needs one writer.** It holds traces in memory, so for now only one writer should run. Running several writers needs Kafka partitioning by trace ID.
 - **Crash loss window.** Traces still waiting for a sampling decision (at most `VINDICE_SAMPLE_WAIT`) are lost if the writer crashes.
 - **Exponential histograms are skipped.** Every other OTLP metric type is stored.
-- **No authentication yet.** The UI and API have no login, and since phase 3 the API can also change dashboards and alerts. Keep port 8080 behind a VPN or a reverse proxy that does authentication.
+- **No ingest authentication.** The OTLP ports have no auth or API keys yet.
+- **Lockout is per instance.** Failed sign-ins are counted in memory, so they reset on restart and are not shared between instances.
