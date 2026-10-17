@@ -71,6 +71,19 @@ type UserManager interface {
 	DeleteUser(ctx context.Context, actorID, id string) error
 }
 
+// IngestAuthorizer checks the API key sent with telemetry.
+type IngestAuthorizer interface {
+	Authorize(ctx context.Context, key string) error
+}
+
+// KeyManager is for admins.
+type KeyManager interface {
+	ListKeys(ctx context.Context) ([]domain.APIKey, map[string]time.Time, error) // keys and their last use
+	// CreateKey returns the key and its secret, which is never shown again.
+	CreateKey(ctx context.Context, name, createdBy string) (domain.APIKey, string, error)
+	RevokeKey(ctx context.Context, id string) error
+}
+
 // BatchWriter buffers decoded telemetry and persists it on Flush.
 // It is driven by the queue consumer, which commits offsets only after a
 // successful Flush.

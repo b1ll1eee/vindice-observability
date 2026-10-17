@@ -50,3 +50,50 @@ func (r *Repository) GetOrCreateSecret(ctx context.Context, name string, gen fun
 	v, _, err := read()
 	return v, err
 }
+
+var _ port.APIKeyRepository = (*Repository)(nil)
+
+func (r *Repository) ListKeys(ctx context.Context) ([]domain.APIKey, error) {
+	return listDocs[domain.APIKey](ctx, r, "api_keys")
+}
+
+func (r *Repository) GetKey(ctx context.Context, id string) (domain.APIKey, bool, error) {
+	return getDoc[domain.APIKey](ctx, r, "api_keys", id)
+}
+
+func (r *Repository) SaveKey(ctx context.Context, k domain.APIKey) error {
+	return putDoc(ctx, r, "api_keys", k.ID, k, false)
+}
+
+func (r *Repository) RecordKeyUse(ctx context.Context, used map[string]time.Time) error {
+	type use struct {
+		id string
+		at time.Time
+	}
+	rows := make([]use, 0, len(used))
+	for id, at := range used {
+		rows = append(rows, use{id, at})
+	}
+	return insert(ctx, r.conn, "INSERT INTO api_key_use (key_id, used_at)", rows,
+		func(u *use) []any { return []any{u.id, u.at} })
+}
+
+func (r *Repository) KeyLastUse(ctx context.Context) (map[string]time.Time, error) {
+	rows, err := r.conn.Query(readCtx(ctx, false), "SELECT key_id, max(used_at) FROM api_key_use GROUP BY key_id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]time.Time{}
+	for rows.Next() {
+		var (
+			id string
+			at time.Time
+		)
+		if err := rows.Scan(&id, &at); err != nil {
+			return nil, err
+		}
+		out[id] = at
+	}
+	return out, rows.Err()
+}

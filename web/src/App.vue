@@ -30,6 +30,7 @@ function onRange(e: Event) {
       <RouterLink :to="{ path: '/dashboards', query: { range: key } }">Dashboards</RouterLink>
       <RouterLink to="/alerts">Alerts</RouterLink>
       <RouterLink v-if="can('admin')" to="/users">Users</RouterLink>
+      <RouterLink v-if="can('admin')" to="/keys">API keys</RouterLink>
     </nav>
     <div class="main">
       <header class="topbar">

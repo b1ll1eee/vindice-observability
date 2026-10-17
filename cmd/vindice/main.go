@@ -88,9 +88,11 @@ func run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 		}
 	}
 
-	// Writer, query and alert share one ClickHouse connection pool.
+	// Writer, query and alert share one ClickHouse connection pool. Ingest
+	// needs it only to load API keys.
+	ingestAuth := ingest && cfg.IngestAuth == "required"
 	var repo *clickhouse.Repository
-	if writer || query || alert {
+	if writer || query || alert || ingestAuth {
 		var err error
 		if repo, err = openClickHouse(ctx, cfg, log); err != nil {
 			return err
@@ -98,9 +100,21 @@ func run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 		defer repo.Close()
 	}
 
+	var keys *service.APIKeyService
+	if repo != nil {
+		keys = service.NewAPIKeyService(repo, log)
+	}
+
 	g, ctx := errgroup.WithContext(ctx)
 	if ingest {
-		if err := startIngest(ctx, g, cfg, log); err != nil {
+		var auth port.IngestAuthorizer
+		if ingestAuth {
+			auth = keys
+			g.Go(func() error { return keys.Run(ctx, 30*time.Second) })
+		} else {
+			log.Warn("VINDICE_INGEST_AUTH=off: OTLP ports accept data without an API key")
+		}
+		if err := startIngest(ctx, g, cfg, auth, log); err != nil {
 			return err
 		}
 	}
@@ -122,7 +136,7 @@ func run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 			}
 			startQuery(ctx, g, cfg, httpapi.Deps{
 				Querier: queries, Metrics: queries, Dashboards: service.NewDashboardService(repo),
-				Alerts: alerts, Auth: auth, Users: auth,
+				Alerts: alerts, Auth: auth, Users: auth, Keys: keys,
 				SecureCookies: strings.HasPrefix(cfg.PublicURL, "https://"), SessionTTL: cfg.SessionTTL,
 				UI: web.Handler(), Log: log,
 			}, log)
@@ -137,7 +151,7 @@ func run(ctx context.Context, mode string, cfg config.Config, log *slog.Logger) 
 	return g.Wait()
 }
 
-func startIngest(ctx context.Context, g *errgroup.Group, cfg config.Config, log *slog.Logger) error {
+func startIngest(ctx context.Context, g *errgroup.Group, cfg config.Config, auth port.IngestAuthorizer, log *slog.Logger) error {
 	pub, err := kafkapublisher.New(cfg.KafkaBrokers)
 	if err != nil {
 		return err
@@ -146,10 +160,10 @@ func startIngest(ctx context.Context, g *errgroup.Group, cfg config.Config, log 
 
 	httpSrv := &http.Server{
 		Addr:              cfg.OTLPHTTPAddr,
-		Handler:           otlphttp.New(ingestSvc, cfg.MaxRequestBytes, log),
+		Handler:           otlphttp.New(ingestSvc, auth, cfg.MaxRequestBytes, log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	grpcSrv := otlpgrpc.NewServer(ingestSvc, int(cfg.MaxRequestBytes))
+	grpcSrv := otlpgrpc.NewServer(ingestSvc, auth, int(cfg.MaxRequestBytes))
 	lis, err := net.Listen("tcp", cfg.OTLPGRPCAddr)
 	if err != nil {
 		pub.Close()

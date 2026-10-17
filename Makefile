@@ -33,10 +33,13 @@ logs:
 	$(COMPOSE) logs -f vindice
 
 # Send sample traces, logs and metrics through the running stack.
+# Needs an API key from the UI (API keys page): make demo KEY=vdc_...
+KEY  ?= $(VINDICE_INGEST_KEY)
+AUTH := $(if $(KEY),--otlp-header 'authorization="Bearer $(KEY)"')
 demo:
-	$(GEN) traces  --otlp-endpoint vindice:4317 --otlp-insecure --rate 0 --traces 200 --child-spans 3 --service demo-api
-	$(GEN) logs    --otlp-endpoint vindice:4317 --otlp-insecure --rate 0 --logs 1000 --service demo-api
-	$(GEN) metrics --otlp-endpoint vindice:4317 --otlp-insecure --rate 0 --metrics 100 --service demo-api
+	$(GEN) traces  --otlp-endpoint vindice:4317 --otlp-insecure $(AUTH) --rate 0 --traces 200 --child-spans 3 --service demo-api
+	$(GEN) logs    --otlp-endpoint vindice:4317 --otlp-insecure $(AUTH) --rate 0 --logs 1000 --service demo-api
+	$(GEN) metrics --otlp-endpoint vindice:4317 --otlp-insecure $(AUTH) --rate 0 --metrics 100 --service demo-api
 
 # Row counts and on-disk size per table.
 stats:

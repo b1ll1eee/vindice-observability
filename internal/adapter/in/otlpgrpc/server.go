@@ -4,6 +4,7 @@ package otlpgrpc
 import (
 	"context"
 	"errors"
+	"strings"
 
 	collogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -11,6 +12,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	_ "google.golang.org/grpc/encoding/gzip" // accept gzip-compressed requests
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
@@ -18,8 +20,14 @@ import (
 	"github.com/b1ll1eee/vindice-obs/internal/core/port"
 )
 
-func NewServer(ingest port.Ingestor, maxMsgBytes int) *grpc.Server {
-	s := grpc.NewServer(grpc.MaxRecvMsgSize(maxMsgBytes))
+// NewServer returns the OTLP/gRPC receiver. auth checks the API key of every
+// call; nil accepts calls without a key.
+func NewServer(ingest port.Ingestor, auth port.IngestAuthorizer, maxMsgBytes int) *grpc.Server {
+	opts := []grpc.ServerOption{grpc.MaxRecvMsgSize(maxMsgBytes)}
+	if auth != nil {
+		opts = append(opts, grpc.UnaryInterceptor(authInterceptor(auth)))
+	}
+	s := grpc.NewServer(opts...)
 	collogs.RegisterLogsServiceServer(s, &logsService{ingest: ingest})
 	coltrace.RegisterTraceServiceServer(s, &traceService{ingest: ingest})
 	colmetrics.RegisterMetricsServiceServer(s, &metricsService{ingest: ingest})
@@ -51,6 +59,31 @@ type metricsService struct {
 
 func (s *metricsService) Export(ctx context.Context, req *colmetrics.ExportMetricsServiceRequest) (*colmetrics.ExportMetricsServiceResponse, error) {
 	return &colmetrics.ExportMetricsServiceResponse{}, forward(ctx, s.ingest, domain.SignalMetrics, req)
+}
+
+// authInterceptor reads the key from the "authorization: Bearer <key>" or
+// "x-vindice-key" metadata.
+func authInterceptor(auth port.IngestAuthorizer) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
+		var key string
+		if md, ok := metadata.FromIncomingContext(ctx); ok {
+			if v := md.Get("authorization"); len(v) > 0 {
+				if scheme, k, ok := strings.Cut(v[0], " "); ok && strings.EqualFold(scheme, "Bearer") {
+					key = strings.TrimSpace(k)
+				}
+			}
+			if v := md.Get("x-vindice-key"); key == "" && len(v) > 0 {
+				key = strings.TrimSpace(v[0])
+			}
+		}
+		if err := auth.Authorize(ctx, key); err != nil {
+			if errors.Is(err, domain.ErrUnavailable) {
+				return nil, status.Error(codes.Unavailable, "temporarily unavailable")
+			}
+			return nil, status.Error(codes.Unauthenticated, err.Error())
+		}
+		return next(ctx, req)
+	}
 }
 
 func forward(ctx context.Context, ingest port.Ingestor, sig domain.Signal, req proto.Message) error {

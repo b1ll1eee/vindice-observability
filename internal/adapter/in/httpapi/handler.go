@@ -21,6 +21,7 @@ type Handler struct {
 	alerts     port.AlertManager
 	auth       port.Authenticator
 	users      port.UserManager
+	keys       port.KeyManager
 	cookie     cookieConfig
 	log        *slog.Logger
 }
@@ -34,6 +35,7 @@ type Deps struct {
 	// (only for tests).
 	Auth  port.Authenticator
 	Users port.UserManager
+	Keys  port.KeyManager
 	// SecureCookies marks the session cookie Secure (serve over HTTPS).
 	SecureCookies bool
 	SessionTTL    time.Duration
@@ -47,7 +49,7 @@ type Deps struct {
 func New(d Deps) http.Handler {
 	h := &Handler{
 		q: d.Querier, metrics: d.Metrics, dashboards: d.Dashboards, alerts: d.Alerts,
-		auth: d.Auth, users: d.Users, log: d.Log,
+		auth: d.Auth, users: d.Users, keys: d.Keys, log: d.Log,
 		cookie: cookieConfig{secure: d.SecureCookies, ttl: d.SessionTTL},
 	}
 	mux := http.NewServeMux()
@@ -94,6 +96,11 @@ func New(d Deps) http.Handler {
 		route("POST /api/v1/users", admin, h.createUser)
 		route("PUT /api/v1/users/{id}", admin, h.updateUser)
 		route("DELETE /api/v1/users/{id}", admin, h.deleteUser)
+	}
+	if d.Keys != nil {
+		route("GET /api/v1/keys", admin, h.listKeys)
+		route("POST /api/v1/keys", admin, h.createKey)
+		route("DELETE /api/v1/keys/{id}", admin, h.revokeKey)
 	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {

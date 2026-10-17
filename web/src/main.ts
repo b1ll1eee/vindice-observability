@@ -19,6 +19,7 @@ const router = createRouter({
     { path: '/alerts', component: () => import('./views/AlertsView.vue') },
     { path: '/account', component: () => import('./views/AccountView.vue') },
     { path: '/users', component: () => import('./views/UsersView.vue'), meta: { role: 'admin' } },
+    { path: '/keys', component: () => import('./views/KeysView.vue'), meta: { role: 'admin' } },
     { path: '/login', component: () => import('./views/LoginView.vue'), meta: { public: true } },
   ],
 })

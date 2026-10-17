@@ -13,8 +13,8 @@ func TestRenderSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(stmts) != 22 {
-		t.Errorf("got %d statements, want 22", len(stmts))
+	if len(stmts) != 24 {
+		t.Errorf("got %d statements, want 24", len(stmts))
 	}
 	all := strings.Join(stmts, "\n")
 	for _, want := range []string{

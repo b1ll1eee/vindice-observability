@@ -55,7 +55,7 @@ func do(h http.Handler, path, ct, enc string, body []byte) *httptest.ResponseRec
 }
 
 func newHandler(ing *fakeIngestor, max int64) http.Handler {
-	return New(ing, max, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return New(ing, nil, max, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 func TestProtobuf(t *testing.T) {
@@ -137,5 +137,52 @@ func TestEmptyRequestIsNotQueued(t *testing.T) {
 	}
 	if !strings.HasPrefix(rec.Body.String(), "{") {
 		t.Errorf("json response = %q", rec.Body)
+	}
+}
+
+type keyAuth struct{ err error }
+
+func (k keyAuth) Authorize(_ context.Context, key string) error {
+	if k.err != nil {
+		return k.err
+	}
+	if key != "vdc_good" {
+		return domain.ErrInvalidKey
+	}
+	return nil
+}
+
+func TestAPIKey(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := New(&fakeIngestor{}, keyAuth{}, 1<<20, log)
+	body := traceReq(t)
+	send := func(h http.Handler, header, value string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/v1/traces", bytes.NewReader(body))
+		req.Header.Set("Content-Type", contentProto)
+		if header != "" {
+			req.Header.Set(header, value)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	if rec := send(h, "", ""); rec.Code != http.StatusUnauthorized || rec.Header().Get("WWW-Authenticate") == "" {
+		t.Errorf("no key: %d %v", rec.Code, rec.Header())
+	}
+	if rec := send(h, "Authorization", "Bearer vdc_bad"); rec.Code != http.StatusUnauthorized {
+		t.Errorf("bad key: %d", rec.Code)
+	}
+	for _, c := range [][2]string{{"Authorization", "Bearer vdc_good"}, {"Authorization", "bearer vdc_good"}, {"X-Vindice-Key", "vdc_good"}} {
+		if rec := send(h, c[0], c[1]); rec.Code != http.StatusOK {
+			t.Errorf("%s: %s -> %d", c[0], c[1], rec.Code)
+		}
+	}
+	unavailable := New(&fakeIngestor{}, keyAuth{err: domain.ErrUnavailable}, 1<<20, log)
+	if rec := send(unavailable, "Authorization", "Bearer vdc_good"); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("keys not loaded should be retryable: %d", rec.Code)
+	}
+	if got := KeyFromHeader(http.Header{"Authorization": {"Basic abc"}}); got != "" {
+		t.Errorf("basic auth taken as a key: %q", got)
 	}
 }

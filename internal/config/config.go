@@ -29,6 +29,8 @@ type Config struct {
 	OTLPHTTPAddr    string
 	MaxRequestBytes int64
 	QueryAddr       string
+	// IngestAuth is "required" (OTLP needs an API key) or "off".
+	IngestAuth string
 	// PublicURL is where users reach the UI; alert messages link to it.
 	PublicURL string
 
@@ -89,6 +91,7 @@ func Load() (Config, error) {
 		OTLPHTTPAddr:    e.str("VINDICE_OTLP_HTTP_ADDR", ":4318"),
 		MaxRequestBytes: int64(e.int("VINDICE_MAX_REQUEST_BYTES", 16<<20)),
 		QueryAddr:       e.str("VINDICE_QUERY_ADDR", ":8080"),
+		IngestAuth:      e.str("VINDICE_INGEST_AUTH", "required"),
 		PublicURL:       e.str("VINDICE_PUBLIC_URL", "http://localhost:8080"),
 
 		AdminUsername: e.str("VINDICE_ADMIN_USERNAME", "admin"),
@@ -122,6 +125,9 @@ func Load() (Config, error) {
 	}
 	if err := c.LogLevel.UnmarshalText([]byte(e.str("VINDICE_LOG_LEVEL", "info"))); err != nil {
 		e.errs = append(e.errs, fmt.Sprintf("VINDICE_LOG_LEVEL: %v", err))
+	}
+	if c.IngestAuth != "required" && c.IngestAuth != "off" {
+		e.errs = append(e.errs, "VINDICE_INGEST_AUTH must be required or off")
 	}
 	if c.SampleRate < 0 || c.SampleRate > 1 {
 		e.errs = append(e.errs, "VINDICE_SAMPLE_RATE must be between 0 and 1")

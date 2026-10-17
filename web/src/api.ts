@@ -215,6 +215,17 @@ export interface User {
   updated_at: string
 }
 
+export interface APIKey {
+  id: string
+  name: string
+  hint: string
+  created_by: string
+  created_at: string
+  revoked: boolean
+  revoked_at?: string
+  last_used?: string
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -299,4 +310,8 @@ export const api = {
   updateUser: (id: string, role: Role, disabled: boolean, password?: string) =>
     request<User>('PUT', `/users/${id}`, {}, { role, disabled, password: password || undefined }),
   deleteUser: (id: string) => request<void>('DELETE', `/users/${id}`),
+
+  keys: () => get<APIKey[]>('/keys'),
+  createKey: (name: string) => request<APIKey & { secret: string }>('POST', '/keys', {}, { name }),
+  revokeKey: (id: string) => request<void>('DELETE', `/keys/${id}`),
 }

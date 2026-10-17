@@ -2,7 +2,7 @@
 
 Lightweight, self-hosted observability for logs, traces and metrics. Data comes in over OpenTelemetry (OTLP), is buffered in Kafka, and is stored in ClickHouse.
 
-> **Status:** phases 1–4 are done: ingest, storage, query API, UI (services, logs, traces, metrics explorer, dashboards), alerting to Telegram, and sign-in with roles.
+> **Status:** phases 1–4 are done: ingest, storage, query API, UI (services, logs, traces, metrics explorer, dashboards), alerting to Telegram, sign-in with roles, and API keys for ingest.
 
 ```
 app (OTel SDK) ──OTLP──▶ ingest ──zstd──▶ Kafka ──▶ writer ──batch──▶ ClickHouse
@@ -15,13 +15,18 @@ app (OTel SDK) ──OTLP──▶ ingest ──zstd──▶ Kafka ──▶ wr
 ## Quick start
 
 ```bash
-make up      # Kafka + ClickHouse + vindice (docker compose)
-make demo    # send sample traces, logs and metrics
-make stats   # rows and on-disk size per table
-open http://localhost:8080
+make up                  # Kafka + ClickHouse + vindice (docker compose)
+open http://localhost:8080   # sign in, then create a key under API keys
+make demo KEY=vdc_...    # send sample traces, logs and metrics
+make stats               # rows and on-disk size per table
 ```
 
-Point any OpenTelemetry SDK or Collector at `localhost:4317` (gRPC) or `http://localhost:4318` (HTTP).
+Point any OpenTelemetry SDK or Collector at `localhost:4317` (gRPC) or `http://localhost:4318` (HTTP), with an API key:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://vindice-host:4318
+OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer vdc_..."
+```
 
 ## UI
 
@@ -56,7 +61,27 @@ Security details:
 - **Safe user management.** The last active admin cannot be demoted, disabled or deleted, and admins cannot delete themselves.
 - **Session key.** If `VINDICE_SESSION_SECRET` is empty, a key is generated and stored in ClickHouse, shared by every instance.
 
-The OTLP ingest ports (4317/4318) do not require sign-in. Keep them on a private network.
+## Ingest API keys
+
+The OTLP ports accept data only with an API key. Admins create keys on the **API keys** page.
+
+**Sending a key**
+- Send it as `Authorization: Bearer <key>`, or as `X-Vindice-Key: <key>` for clients that cannot set `Authorization`.
+- gRPC reads the same names from metadata.
+- A missing or wrong key gets HTTP 401, or gRPC `Unauthenticated`. OTLP clients do not retry these.
+
+**Storing keys**
+- Keys start with `vdc_` and carry 256 random bits.
+- Only their SHA-256 is stored. The key itself is shown once, when it is created.
+- The UI shows when each key was last used, to the minute.
+
+**How ingest checks keys**
+- Ingest keeps the active keys in memory and reloads them every 30 seconds, so requests never wait on ClickHouse.
+- If ClickHouse goes down, ingest keeps using the last loaded keys.
+- A revoked key stops working within 30 seconds.
+- Before the first load, ingest answers 503, so clients retry instead of dropping data.
+
+Set `VINDICE_INGEST_AUTH=off` to accept data without a key, for local development only.
 
 ## Alerts to Telegram
 
@@ -94,6 +119,7 @@ The UI is Vue 3 + TypeScript with no UI or chart library. It is built into `web/
 | `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me` | session |
 | `POST /api/v1/auth/password` | change your password |
 | `GET POST /api/v1/users`, `PUT DELETE /api/v1/users/{id}` | users (admin) |
+| `GET POST /api/v1/keys`, `DELETE /api/v1/keys/{id}` | ingest API keys (admin); the secret is returned only by POST |
 | `GET /api/v1/alerts/events` | firing and resolved history |
 
 `from` and `to` are epoch milliseconds. Without them, the last hour is used.
@@ -107,10 +133,10 @@ cmd/vindice/                composition root: builds adapters, injects them into
 internal/core/
   domain/                   entities and query objects: LogRow, SpanRow, Series, LogQuery, TraceQuery, ...
   port/                     inbound (Ingestor, BatchWriter, Querier, MetricsQuerier, DashboardManager, AlertManager,
-                            Authenticator, UserManager)
+                            Authenticator, UserManager, IngestAuthorizer, KeyManager)
                             outbound (Publisher, *Repository, TelemetryReader, Notifier, UserRepository,
-                            SecretStore, PasswordHasher, SessionCodec)
-  service/                  IngestService, WriterService, QueryService, DashboardService, AlertService, AuthService
+                            SecretStore, PasswordHasher, SessionCodec, APIKeyRepository)
+  service/                  IngestService, WriterService, QueryService, DashboardService, AlertService, AuthService, APIKeyService
   policy/                   drop rules, sampling, attribute promotion, dedupe
 internal/adapter/
   in/otlphttp, in/otlpgrpc  OTLP receivers → port.Ingestor
@@ -179,6 +205,7 @@ All settings come from environment variables. Defaults are in `internal/config/c
 | `VINDICE_SAMPLE_RATE` | `0.1` | fraction of normal traces kept; `1` keeps everything |
 | `VINDICE_SAMPLE_SLOW` | `1s` | traces with a span at least this slow are always kept |
 | `VINDICE_RULES_FILE` | – | JSON drop rules |
+| `VINDICE_INGEST_AUTH` | `required` | `off` accepts OTLP without an API key |
 | `VINDICE_RETENTION_*_DAYS` | 3/14/90/7/7/30/365 | debug/info/error logs, traces, metrics raw/1m/1h |
 | `VINDICE_CH_COLD_STORAGE_POLICY` | – | enables the S3/R2 cold tier |
 
@@ -197,5 +224,4 @@ VINDICE_IT_CH_ADDR=localhost:9000 \
 - **Tail sampling needs one writer.** It holds traces in memory, so for now only one writer should run. Running several writers needs Kafka partitioning by trace ID.
 - **Crash loss window.** Traces still waiting for a sampling decision (at most `VINDICE_SAMPLE_WAIT`) are lost if the writer crashes.
 - **Exponential histograms are skipped.** Every other OTLP metric type is stored.
-- **No ingest authentication.** The OTLP ports have no auth or API keys yet.
 - **Lockout is per instance.** Failed sign-ins are counted in memory, so they reset on restart and are not shared between instances.

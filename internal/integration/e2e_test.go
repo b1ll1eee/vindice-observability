@@ -124,7 +124,7 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pub.Close()
-	srv := httptest.NewServer(otlphttp.New(service.NewIngestService(pub), 16<<20, log))
+	srv := httptest.NewServer(otlphttp.New(service.NewIngestService(pub), nil, 16<<20, log))
 	defer srv.Close()
 
 	post(t, srv.URL+"/v1/traces", traces())
@@ -187,6 +187,74 @@ func TestEndToEnd(t *testing.T) {
 	testReadSide(ctx, t, service.NewQueryService(repo))
 	testMetricsDashboardsAlerts(ctx, t, repo)
 	testAuth(ctx, t, repo)
+	testIngestKeys(ctx, t, repo)
+}
+
+func testIngestKeys(ctx context.Context, t *testing.T, repo *chrepo.Repository) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	admin := service.NewAPIKeyService(repo, log)
+	k, secret, err := admin.CreateKey(ctx, "ci", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// An ingest instance learns about keys from ClickHouse.
+	ingestKeys := service.NewAPIKeyService(repo, log)
+	if err := ingestKeys.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ing := &countingIngestor{}
+	srv := httptest.NewServer(otlphttp.New(ing, ingestKeys, 1<<20, log))
+	defer srv.Close()
+	send := func(key string) int {
+		b, _ := proto.Marshal(logs())
+		req, _ := http.NewRequest("POST", srv.URL+"/v1/logs", bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/x-protobuf")
+		if key != "" {
+			req.Header.Set("Authorization", "Bearer "+key)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	if code := send(""); code != http.StatusUnauthorized {
+		t.Errorf("no key: %d", code)
+	}
+	if code := send(secret); code != http.StatusOK || ing.n != 1 {
+		t.Errorf("valid key: %d, %d ingested", code, ing.n)
+	}
+	if err := ingestKeys.FlushUsage(ctx); err != nil {
+		t.Fatal(err)
+	}
+	keys, used, err := admin.ListKeys(ctx)
+	if err != nil || len(keys) != 1 || used[k.ID].IsZero() {
+		t.Errorf("list keys: %+v, used %v, %v", keys, used, err)
+	}
+
+	if err := admin.RevokeKey(ctx, k.ID); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Millisecond)
+	_ = ingestKeys.Refresh(ctx)
+	if code := send(secret); code != http.StatusUnauthorized {
+		t.Errorf("revoked key: %d", code)
+	}
+	// Recording use after the revoke must not bring the key back.
+	_ = ingestKeys.FlushUsage(ctx)
+	if got, _, _ := repo.GetKey(ctx, k.ID); !got.Revoked {
+		t.Error("key un-revoked")
+	}
+}
+
+type countingIngestor struct{ n int }
+
+func (c *countingIngestor) Ingest(context.Context, domain.Signal, []byte) error {
+	c.n++
+	return nil
 }
 
 func testAuth(ctx context.Context, t *testing.T, repo *chrepo.Repository) {

@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"strings"
 
 	collogs "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -30,12 +31,15 @@ const (
 
 type Handler struct {
 	ingest  port.Ingestor
+	auth    port.IngestAuthorizer
 	maxBody int64
 	log     *slog.Logger
 }
 
-func New(ingest port.Ingestor, maxBody int64, log *slog.Logger) http.Handler {
-	h := &Handler{ingest: ingest, maxBody: maxBody, log: log}
+// New returns the OTLP/HTTP receiver. auth checks the API key of every
+// request; nil accepts requests without a key.
+func New(ingest port.Ingestor, auth port.IngestAuthorizer, maxBody int64, log *slog.Logger) http.Handler {
+	h := &Handler{ingest: ingest, auth: auth, maxBody: maxBody, log: log}
 	mux := http.NewServeMux()
 	mux.Handle("POST /v1/logs", h.endpoint(domain.SignalLogs,
 		func() proto.Message { return &collogs.ExportLogsServiceRequest{} },
@@ -52,6 +56,18 @@ func New(ingest port.Ingestor, maxBody int64, log *slog.Logger) http.Handler {
 
 func (h *Handler) endpoint(sig domain.Signal, newReq, newResp func() proto.Message) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.auth != nil {
+			if err := h.auth.Authorize(r.Context(), KeyFromHeader(r.Header)); err != nil {
+				if errors.Is(err, domain.ErrUnavailable) {
+					w.Header().Set("Retry-After", "5")
+					http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
+					return
+				}
+				w.Header().Set("WWW-Authenticate", `Bearer realm="vindice"`)
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
+		}
 		ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if ct == "" {
 			ct = contentProto
@@ -109,6 +125,15 @@ func (h *Handler) endpoint(sig domain.Signal, newReq, newResp func() proto.Messa
 }
 
 var errTooLarge = errors.New("request body too large")
+
+// KeyFromHeader reads the API key from "Authorization: Bearer <key>" or,
+// for clients that cannot set Authorization, "X-Vindice-Key: <key>".
+func KeyFromHeader(h http.Header) string {
+	if scheme, key, ok := strings.Cut(h.Get("Authorization"), " "); ok && strings.EqualFold(scheme, "Bearer") {
+		return strings.TrimSpace(key)
+	}
+	return strings.TrimSpace(h.Get("X-Vindice-Key"))
+}
 
 func (h *Handler) readBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	var rd io.Reader = http.MaxBytesReader(w, r.Body, h.maxBody)

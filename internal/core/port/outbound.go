@@ -93,6 +93,16 @@ type UserRepository interface {
 	DeleteUser(ctx context.Context, id string) error
 }
 
+type APIKeyRepository interface {
+	ListKeys(ctx context.Context) ([]domain.APIKey, error)
+	GetKey(ctx context.Context, id string) (domain.APIKey, bool, error)
+	SaveKey(ctx context.Context, k domain.APIKey) error
+	// RecordKeyUse appends last-use times. It never rewrites the key
+	// itself, so it cannot undo a concurrent revoke.
+	RecordKeyUse(ctx context.Context, used map[string]time.Time) error
+	KeyLastUse(ctx context.Context) (map[string]time.Time, error)
+}
+
 // SecretStore keeps a named secret shared by every instance (e.g. the
 // session signing key), creating it with gen the first time.
 type SecretStore interface {
