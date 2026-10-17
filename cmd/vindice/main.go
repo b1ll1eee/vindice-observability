@@ -43,9 +43,17 @@ import (
 	"github.com/b1ll1eee/vindice-observability/web"
 )
 
+// version is set at build time by GoReleaser (-X main.version=...).
+var version = "dev"
+
 func main() {
 	mode := flag.String("mode", "all", "all | ingest | writer | query | alert")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println("vindice", version)
+		return
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -53,6 +61,8 @@ func main() {
 		os.Exit(2)
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
+
+	log.Info("vindice starting", "version", version, "mode", *mode)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

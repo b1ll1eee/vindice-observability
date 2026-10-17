@@ -1,0 +1,51 @@
+# GoReleaser config for the vindice server. Run by .github/workflows/release.yml on tags v*.
+# Local dry run: goreleaser release --snapshot --clean   (needs web/dist built first: make web)
+version: 2
+project_name: vindice
+
+before:
+  hooks:
+    - go mod download
+    - test -f web/dist/index.html   # the UI is embedded; refuse to ship a binary without it
+
+builds:
+  - id: vindice
+    main: ./cmd/vindice
+    binary: vindice
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{ .Version }}"]
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+
+git:
+  ignore_tags: ["sdk/*"]   # the Go SDK is versioned separately
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude: ["^docs", "^chore", "^test", "(?i)readme"]
+  groups:
+    - title: Features
+      regexp: "(?i)^(feat|add)"
+      order: 0
+    - title: Fixes
+      regexp: "(?i)^fix"
+      order: 1
+    - title: Other changes
+      order: 999
+
+release:
+  draft: true          # review the notes, then publish by hand
+  prerelease: auto     # v0.x and -rc tags are marked as pre-releases
+  footer: |
+    **Docker:** `docker pull ghcr.io/b1ll1eee/vindice-observability:{{ .Version }}`
