@@ -501,6 +501,8 @@ func testReadSide(ctx context.Context, t *testing.T, q *service.QueryService) {
 		"phrase":             {domain.LogQuery{Range: window, Text: "order created"}, 1},
 		"no match":           {domain.LogQuery{Range: window, Text: "nothing-like-this"}, 0},
 		"errors only":        {domain.LogQuery{Range: window, MinSeverity: 17}, 1},
+		"info and above":     {domain.LogQuery{Range: window, MinSeverity: 9}, 3}, // includes the log with no severity
+		"warn and above":     {domain.LogQuery{Range: window, MinSeverity: 13}, 1},
 		"service":            {domain.LogQuery{Range: window, Service: "orders"}, 3},
 		"trace":              {domain.LogQuery{Range: window, TraceID: (*[16]byte)(errTraceID)}, 1},
 		"page size":          {domain.LogQuery{Range: window, Limit: 2}, 2},

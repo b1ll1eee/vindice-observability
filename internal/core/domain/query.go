@@ -13,8 +13,10 @@ type TimeRange struct {
 
 // LogQuery is the criteria for searching logs (Query Object pattern).
 type LogQuery struct {
-	Range       TimeRange
-	Service     string
+	Range   TimeRange
+	Service string
+	// MinSeverity keeps logs at this severity number or above; logs with no
+	// severity count as INFO (9).
 	MinSeverity uint8
 	Text        string
 	TraceID     *[16]byte

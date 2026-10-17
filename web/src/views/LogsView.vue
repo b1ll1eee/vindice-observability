@@ -7,7 +7,6 @@ import LogHistogram from '../components/LogHistogram.vue'
 import LogList from '../components/LogList.vue'
 import PageHeader from '../components/PageHeader.vue'
 import SkeletonRows from '../components/SkeletonRows.vue'
-import { count } from '../format'
 import { useLoader } from '../load'
 import { useTimeRange } from '../range'
 
@@ -15,13 +14,13 @@ const route = useRoute()
 const router = useRouter()
 const { range } = useTimeRange()
 
+// "At least this level". Logs without a severity count as Info, as on the server.
 const levels = [
-  { value: 0, label: 'All' },
-  { value: 5, label: 'Debug+' },
-  { value: 9, label: 'Info+' },
-  { value: 13, label: 'Warn+' },
-  { value: 17, label: 'Errors' },
-]
+  { value: 0, label: 'All', from: ['debug', 'info', 'warn', 'error'] },
+  { value: 9, label: 'Info+', from: ['info', 'warn', 'error'] },
+  { value: 13, label: 'Warn+', from: ['warn', 'error'] },
+  { value: 17, label: 'Errors', from: ['error'] },
+] as const
 
 // Filters live in the URL so a search can be shared or bookmarked.
 const filter = computed<LogFilter>(() => ({
@@ -43,6 +42,26 @@ const hist = useLoader(() => api.histogram(range.value, filter.value), [range, f
 const total = computed(() =>
   (hist.data.value?.buckets ?? []).reduce((n, b) => n + b.debug + b.info + b.warn + b.error, 0),
 )
+
+// Counts on the level buttons come from the same filters minus the level,
+// so each button shows what it would return.
+const allLevels = useLoader(() => api.histogram(range.value, { ...filter.value, severity: undefined }), [range, filter])
+const perLevel = computed(() => {
+  const sum = { debug: 0, info: 0, warn: 0, error: 0 }
+  for (const b of allLevels.data.value?.buckets ?? []) {
+    sum.debug += b.debug
+    sum.info += b.info
+    sum.warn += b.warn
+    sum.error += b.error
+  }
+  return sum
+})
+// Exact, not rounded: 5,101 and 5,061 must not both read "5.1k".
+const exact = (n: number) => n.toLocaleString('en-US')
+
+function levelCount(from: readonly ('debug' | 'info' | 'warn' | 'error')[]) {
+  return from.reduce((n, l) => n + perLevel.value[l], 0)
+}
 
 const logs = ref<Log[]>([])
 const next = ref<string>()
@@ -98,14 +117,16 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
   <div class="filters">
     <div class="seg" role="group" aria-label="Level">
       <button v-for="l in levels" :key="l.value" :class="{ on: (filter.severity ?? 0) === l.value }"
-        @click="setFilter({ severity: l.value ? String(l.value) : undefined })">{{ l.label }}</button>
+        @click="setFilter({ severity: l.value ? String(l.value) : undefined })">
+        {{ l.label }}<span v-if="allLevels.data.value" class="n">{{ exact(levelCount(l.from)) }}</span>
+      </button>
     </div>
     <span v-if="filter.trace_id" class="chip mono">
       trace {{ filter.trace_id.slice(0, 8) }}…
       <button type="button" title="Clear" @click="setFilter({ trace_id: undefined })">×</button>
     </span>
     <span class="grow" />
-    <span class="muted small">{{ count(total) }} matching logs</span>
+    <span class="muted small">{{ exact(total) }} matching logs</span>
   </div>
 
   <div v-if="page.error.value || hist.error.value" class="error-box">{{ page.error.value || hist.error.value }}</div>
@@ -128,4 +149,6 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 .search-row select { min-width: 170px; }
 .filters { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
 .more { text-align: center; margin-top: 14px; }
+.n { margin-left: 6px; font-size: 11.5px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.seg button.on .n { color: var(--accent); }
 </style>

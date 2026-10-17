@@ -154,12 +154,16 @@ func latency(q []float64) domain.Latency {
 	return domain.Latency{P50: q[0] / 1e6, P95: q[1] / 1e6, P99: q[2] / 1e6}
 }
 
+// minSeverity keeps logs at or above a severity. Logs without a severity
+// (0) count as INFO here, as they do in retention and the level histogram.
+const minSeverity = "(severity_number >= ? OR (severity_number = 0 AND ? <= 9))"
+
 func logFilter(q domain.LogQuery) *where {
 	w := (&where{}).
 		and("timestamp >= fromUnixTimestamp64Nano(?)", nanos(q.Range.From)).
 		and("timestamp < fromUnixTimestamp64Nano(?)", nanos(q.Range.To)).
 		andIf(q.Service != "", "service_name = ?", q.Service).
-		andIf(q.MinSeverity > 0, "severity_number >= ?", q.MinSeverity).
+		andIf(q.MinSeverity > 0, minSeverity, q.MinSeverity, q.MinSeverity).
 		andIf(!q.Before.IsZero(), "timestamp < fromUnixTimestamp64Nano(?)", nanos(q.Before))
 	if q.TraceID != nil {
 		w.and("trace_id = unhex(?)", hexID(q.TraceID[:]))
@@ -293,7 +297,7 @@ func (r *Repository) LogHistogram(ctx context.Context, q domain.LogQuery, step t
 			and("ts >= fromUnixTimestamp(?)", minuteFloor(q.Range.From)).
 			and("ts < fromUnixTimestamp(?)", q.Range.To.Unix()).
 			andIf(q.Service != "", "service_name = ?", q.Service).
-			andIf(q.MinSeverity > 0, "severity_number >= ?", q.MinSeverity)
+			andIf(q.MinSeverity > 0, minSeverity, q.MinSeverity, q.MinSeverity)
 		query = `SELECT toStartOfInterval(ts, toIntervalSecond(?)) AS t,` + levelCounts + `
 			FROM (SELECT ts, severity_number, records AS n FROM log_counts_1m ` + w.String() + `)
 			GROUP BY t ORDER BY t`
