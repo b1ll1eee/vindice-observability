@@ -58,3 +58,5 @@ VINDICE_ENDPOINT=http://vindice-host:4318 VINDICE_API_KEY=vdc_... ./orders
 | `LogOutput` | `os.Stderr` | `io.Discard` sends logs only to Vindice |
 
 Requires Go 1.26 or newer. A runnable service is in [`example/`](example/main.go).
+
+MIT licensed, see [LICENSE](LICENSE).

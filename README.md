@@ -200,3 +200,7 @@ make web-dev       # UI with hot reload on :5173 (API on :8080)
 Everything above works today with Docker Compose. Known limits are listed in the [reference](docs/reference.md#known-limits). The main ones:
 - **Single instances.** Tail sampling needs a single writer, and alerting needs a single evaluator.
 - **Not stored yet.** Exponential histograms are skipped.
+
+## License
+
+[MIT](LICENSE)
